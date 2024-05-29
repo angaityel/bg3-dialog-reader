@@ -1,59 +1,63 @@
-﻿using LSLib.LS;
+using LSLib.LS;
 using LSLib.LS.Enums;
 using LZ4;
 using Microsoft.Data.Sqlite;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using System;
 using System.Collections.Generic;
-using System.Data;
-using System.Data.OleDb;
 using System.Diagnostics;
+using System.Diagnostics.Eventing.Reader;
+using System.Formats.Asn1;
 using System.IO;
-using System.Linq;
 using System.Media;
-using System.Reflection;
-using System.Security.Policy;
+using System.Reflection.Emit;
 using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml;
-using static System.Net.Mime.MediaTypeNames;
+using static bg3dialogreader.Form1;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.ToolBar;
 
 namespace bg3dialogreader
 {
     public partial class Form1 : Form
     {
         private Resource _resource;
-        SqliteConnection connection = new SqliteConnection("Data Source=bg3.db");
-        SqliteCommand sqlitecommand = new SqliteCommand();
-        List<string> fdialogs = new List<string>();
-        List<string> adialogs = new List<string>();
-        Dictionary<string, string> testdictfound = new Dictionary<string, string>()
+        SqliteConnection connection = new("Data Source=bg3.db");
+        SqliteCommand sqliteCommand = new();
+        List<string> fdialogs = [];
+        List<string> adialogs = [];
+        List<Task> converttasks = [];
+        Dictionary<string, string> testdictfound = new()
         {
             {"e0d1ff71-04a8-4340-ae64-9684d846eb83", "Player"}
         };
-        Dictionary<string, string> testdictnotfound = new Dictionary<string, string>();
+        Dictionary<string, string> testdictnotfound = [];
         string bg3path = "";
-        List<string> exdialogs = new List<string>();
+        List<string> exdialogs = [];
+        Dictionary<string, string> adgg = [];
+        Dictionary<string, byte[]> testloadall = [];
         int dfc = 0;
+        int dfc2 = 0;
         public Form1()
         {
             InitializeComponent();
             if (!File.Exists("vgmstream-cli.exe"))
             {
-                linkLabel1.Visible = true;
-                exportToolStripMenuItem.Enabled = false;
+                linkLabelNotFoundVGM.Visible = true;
+                //exportToolStripMenuItem.Enabled = false;
             }
             if (File.Exists("bg3.db"))
             {
                 DateTime fd = File.GetCreationTime("bg3.db");
-                label6.Text = "(Database created: " + fd.ToString() + ")";
+                labelDBInfo.Text = "(Database created: " + fd.ToString() + ")";
+                labelDBInfo.Visible = true;
             }
             else
             {
-                label6.Text = "(Database not exists)";
-
+                labelDBInfo.Text = "(Database not exists)";
+                labelDBInfo.Visible = true;
             }
         }
 
@@ -61,13 +65,13 @@ namespace bg3dialogreader
         {
             string engpak = "";
             string lang = "";
-            this.Invoke(new MethodInvoker(delegate () { lang = comboBox1.Text; }));
+            this.Invoke(new MethodInvoker(delegate () { lang = comboBoxLanguageSelect.Text; }));
 
             if (lang == "English")
                 engpak = bg3path + "\\Localization\\English.pak";
             else
                 engpak = bg3path + "\\Localization\\" + lang + "\\" + lang + ".pak"; //"\\Localization\\English.pak";
-            using (FileStream fileStream = new FileStream(engpak, FileMode.Open, FileAccess.Read))
+            using (FileStream fileStream = new(engpak, FileMode.Open, FileAccess.Read))
             {
                 using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
                 {
@@ -100,7 +104,7 @@ namespace bg3dialogreader
                                 brmem.ReadBytes(2);
                                 var zsize = brmem.ReadUInt32();
                                 var size = brmem.ReadUInt32();
-                                
+
                                 string x = Encoding.UTF8.GetString(data.TakeWhile(a => a != 0).ToArray());
 
                                 testoffset = dialogoffset;
@@ -124,14 +128,14 @@ namespace bg3dialogreader
                                             var resource = reader.Read();
 
 
-                                            sqlitecommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@handle,@text,null)";
+                                            sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@handle,@text,null)";
                                             foreach (var item in resource.Entries)
                                             {
 
-                                                sqlitecommand.Parameters.Add(new SqliteParameter("@handle", item.Key));
-                                                sqlitecommand.Parameters.Add(new SqliteParameter("@text", item.Text));
-                                                sqlitecommand.ExecuteNonQuery();
-                                                sqlitecommand.Parameters.Clear();
+                                                sqliteCommand.Parameters.Add(new SqliteParameter("@handle", item.Key));
+                                                sqliteCommand.Parameters.Add(new SqliteParameter("@text", item.Text));
+                                                sqliteCommand.ExecuteNonQuery();
+                                                sqliteCommand.Parameters.Clear();
 
                                             }
 
@@ -157,6 +161,7 @@ namespace bg3dialogreader
             writer.PrettyPrint = conversionParams.PrettyPrint;
             writer.Write(resource);
         }
+
         private void dialogs(string filename, BinaryReader br, long offset, int size, int zsize)
         {
             br.BaseStream.Position = offset;
@@ -168,7 +173,7 @@ namespace bg3dialogreader
             {
                 testuncompressedList = testcompress;
             }
-            
+
             var asd = filename.Split(new string[] { "/Story/Dialogs/" }, StringSplitOptions.None);
 
             Directory.CreateDirectory(Path.GetDirectoryName(AppDomain.CurrentDomain.BaseDirectory + "\\Dialogs_lsj\\" + asd[1]));
@@ -186,12 +191,14 @@ namespace bg3dialogreader
                 testuncompressedList = testcompress;
             }
 
-            convertd(testuncompressedList, filename);
+
+            convertd2(testuncompressedList, filename);
+
             dfc++;
-            this.Invoke(new MethodInvoker(delegate () { label2.Text = dfc.ToString(); }));
+            this.Invoke(new MethodInvoker(delegate () { labelExportedFilesCounter.Text = dfc.ToString(); }));
+
 
         }
-
 
         private void finaliz()
         {
@@ -220,19 +227,19 @@ namespace bg3dialogreader
                             }
                         }
                     }
-                }    
+                }
             }
 
             foreach (var entry in testdictfound)
             {
-                sqlitecommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
+                sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
 
-                sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", entry.Key));
-                sqlitecommand.Parameters.Add(new SqliteParameter("@text", entry.Value));
-                sqlitecommand.Parameters.Add(new SqliteParameter("@desc", DBNull.Value));
+                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", entry.Key));
+                sqliteCommand.Parameters.Add(new SqliteParameter("@text", entry.Value));
+                sqliteCommand.Parameters.Add(new SqliteParameter("@desc", DBNull.Value));
 
-                sqlitecommand.ExecuteNonQuery();
-                sqlitecommand.Parameters.Clear();
+                sqliteCommand.ExecuteNonQuery();
+                sqliteCommand.Parameters.Clear();
             }
         }
 
@@ -287,12 +294,12 @@ namespace bg3dialogreader
                                     ParentTemplateId = item1.Attributes.GetNamedItem("value").Value;
                             }
 
-                            if (DisplayName.StartsWith("h"))
+                            if (DisplayName.StartsWith('h'))
                             {
-                                sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                                sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", DisplayName));
+                                sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
+                                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", DisplayName));
 
-                                using (SqliteDataReader readers = sqlitecommand.ExecuteReader())
+                                using (SqliteDataReader readers = sqliteCommand.ExecuteReader())
                                 {
                                     if (readers.HasRows)
                                     {
@@ -303,7 +310,7 @@ namespace bg3dialogreader
                                         }
                                     }
                                 }
-                                sqlitecommand.Parameters.Clear();
+                                sqliteCommand.Parameters.Clear();
                             }
                             else if (DisplayName == "")
                             {
@@ -400,20 +407,20 @@ namespace bg3dialogreader
                             continue;
 
 
-                        sqlitecommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
+                        sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
 
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@text", stringname));
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@desc", desc));
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", stringname));
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@desc", desc));
 
-                        sqlitecommand.ExecuteNonQuery();
-                        sqlitecommand.Parameters.Clear();
+                        sqliteCommand.ExecuteNonQuery();
+                        sqliteCommand.Parameters.Clear();
                     }
 
                 }
             }
         }
-        private void reactions(string filename, BinaryReader br, long offset, int size, int zsize)
+        private void Reactions(string filename, BinaryReader br, long offset, int size, int zsize)
         {
             br.BaseStream.Position = offset;
             byte[] testcompress = br.ReadBytes(zsize);
@@ -446,7 +453,7 @@ namespace bg3dialogreader
                 XmlDocument xDoc = new XmlDocument();
                 xDoc.Load(xmreader);
 
-                
+
                 string react = "[";
 
                 XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children/node");
@@ -471,22 +478,22 @@ namespace bg3dialogreader
                         if (stringname != "0")
                             react += "'" + npc[uuid] + " " + stringname + "', ";
                     }
-                    sqlitecommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc) ON CONFLICT(uuid) DO UPDATE SET uuid=excluded.uuid";
-                    sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", Path.GetFileNameWithoutExtension(filename)));
+                    sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc) ON CONFLICT(uuid) DO UPDATE SET uuid=excluded.uuid";
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", Path.GetFileNameWithoutExtension(filename)));
 
                     if (react == "[")
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@text", DBNull.Value));
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", DBNull.Value));
                     else
                     {
                         react = react.Remove(react.Length - 2);
                         react += "]";
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@text", react));
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", react));
                     }
-                    
-                    sqlitecommand.Parameters.Add(new SqliteParameter("@desc", DBNull.Value));
 
-                    sqlitecommand.ExecuteNonQuery();
-                    sqlitecommand.Parameters.Clear();
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@desc", DBNull.Value));
+
+                    sqliteCommand.ExecuteNonQuery();
+                    sqliteCommand.Parameters.Clear();
 
                 }
 
@@ -525,13 +532,13 @@ namespace bg3dialogreader
                             diff = item1.Attributes.GetNamedItem("value").Value;
                     }
 
-                    sqlitecommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
-                    sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
-                    sqlitecommand.Parameters.Add(new SqliteParameter("@text", diff));
-                    sqlitecommand.Parameters.Add(new SqliteParameter("@desc", stringname));
+                    sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@text", diff));
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@desc", stringname));
 
-                    sqlitecommand.ExecuteNonQuery();
-                    sqlitecommand.Parameters.Clear();
+                    sqliteCommand.ExecuteNonQuery();
+                    sqliteCommand.Parameters.Clear();
 
                 }
 
@@ -578,14 +585,14 @@ namespace bg3dialogreader
                                 }
 
 
-                                sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                                sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", desc));
+                                sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
+                                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", desc));
 
-                                using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
+                                using (SqliteDataReader reader = sqliteCommand.ExecuteReader())
                                 {
-                                    if (reader.HasRows) 
+                                    if (reader.HasRows)
                                     {
-                                        while (reader.Read()) 
+                                        while (reader.Read())
                                         {
                                             desc2 = reader.GetValue(1).ToString();
                                         }
@@ -594,15 +601,15 @@ namespace bg3dialogreader
 
 
                                 }
-                                sqlitecommand.Parameters.Clear();
+                                sqliteCommand.Parameters.Clear();
 
 
-                                sqlitecommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
-                                sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
-                                sqlitecommand.Parameters.Add(new SqliteParameter("@text", stringname));
-                                sqlitecommand.Parameters.Add(new SqliteParameter("@desc", desc2));
-                                sqlitecommand.ExecuteNonQuery();
-                                sqlitecommand.Parameters.Clear();
+                                sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
+                                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
+                                sqliteCommand.Parameters.Add(new SqliteParameter("@text", stringname));
+                                sqliteCommand.Parameters.Add(new SqliteParameter("@desc", desc2));
+                                sqliteCommand.ExecuteNonQuery();
+                                sqliteCommand.Parameters.Clear();
                             }
                         }
                     }
@@ -656,21 +663,21 @@ namespace bg3dialogreader
                             desc = item.Attributes.GetNamedItem("value").Value;
                     }
 
-                    
 
-                    sqlitecommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@handle,@text,@desc) ON CONFLICT(uuid) DO UPDATE SET uuid=excluded.uuid";
-                    sqlitecommand.Parameters.Add(new SqliteParameter("@handle", Path.GetFileNameWithoutExtension(filename)));
+
+                    sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@handle,@text,@desc) ON CONFLICT(uuid) DO UPDATE SET uuid=excluded.uuid";
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@handle", Path.GetFileNameWithoutExtension(filename)));
                     if (stringname != "")
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@text", stringname));
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", stringname));
                     else
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@text", DBNull.Value));
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", DBNull.Value));
 
                     if (desc != "")
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@desc", desc));
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@desc", desc));
                     else
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@desc", DBNull.Value));
-                    sqlitecommand.ExecuteNonQuery();
-                    sqlitecommand.Parameters.Clear();
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@desc", DBNull.Value));
+                    sqliteCommand.ExecuteNonQuery();
+                    sqliteCommand.Parameters.Clear();
 
 
 
@@ -728,7 +735,7 @@ namespace bg3dialogreader
                                 if (x.Contains("/Story/Journal/quest_prototypes.lsx"))
                                     questflags(binaryReader1, testoffset, testsize, testzsize);//+
                                 if (x.Contains("/ApprovalRatings/Reactions/"))//*.lsx
-                                    reactions(x, binaryReader1, testoffset, testsize, testzsize);//+
+                                    Reactions(x, binaryReader1, testoffset, testsize, testzsize);//+
                                 if (x.Contains("/DifficultyClasses/DifficultyClasses.lsx"))
                                     difficulties(binaryReader1, testoffset, testsize, testzsize);//+
                                 if ((x.Contains("/Items/_merged.lsf") || x.Contains("/Characters/_merged.lsf") || x.Contains("/RootTemplates/")) && !x.Contains("/Content/"))
@@ -798,19 +805,19 @@ namespace bg3dialogreader
                             }
 
 
-                            sqlitecommand.CommandText = "UPDATE tagsflags SET description=@desc WHERE uuid=@uuid";
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", huuid));
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@desc", hsource));
-                            sqlitecommand.ExecuteNonQuery();
-                            sqlitecommand.Parameters.Clear();
+                            sqliteCommand.CommandText = "UPDATE tagsflags SET description=@desc WHERE uuid=@uuid";
+                            sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", huuid));
+                            sqliteCommand.Parameters.Add(new SqliteParameter("@desc", hsource));
+                            sqliteCommand.ExecuteNonQuery();
+                            sqliteCommand.Parameters.Clear();
 
 
                             /*
-                            sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", huuid));
+                            sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
+                            sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", huuid));
 
                             
-                            using (SqliteDataReader reader1 = sqlitecommand.ExecuteReader())
+                            using (SqliteDataReader reader1 = sqliteCommand.ExecuteReader())
                             {
                                 if (reader1.HasRows)
                                 {
@@ -821,14 +828,14 @@ namespace bg3dialogreader
                                 }
                             }
                             
-                            sqlitecommand.Parameters.Clear();
+                            sqliteCommand.Parameters.Clear();
 
-                            sqlitecommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", huuid));
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@text", text));
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@desc", hsource));
-                            sqlitecommand.ExecuteNonQuery();
-                            sqlitecommand.Parameters.Clear();
+                            sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
+                            sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", huuid));
+                            sqliteCommand.Parameters.Add(new SqliteParameter("@text", text));
+                            sqliteCommand.Parameters.Add(new SqliteParameter("@desc", hsource));
+                            sqliteCommand.ExecuteNonQuery();
+                            sqliteCommand.Parameters.Clear();
                             */
                         }
 
@@ -879,14 +886,16 @@ namespace bg3dialogreader
                                 testsize = (int)size;
                                 testzsize = (int)zsize;
 
+
                                 if (x.Contains("/Story/Dialogs/") && x.Contains(".lsj") && testzsize != 0)
                                     if (!exdialogs.Contains(x))
                                     {
                                         dialogs2(x, binaryReader1, testoffset, testsize, testzsize);
                                         exdialogs.Add(x);
-                                        if (checkBox1.Checked)
+                                        if (checkBoxExportLSJ.Checked)
                                             dialogs(x, binaryReader1, testoffset, testsize, testzsize);
                                     }
+
                             };
 
 
@@ -898,93 +907,6 @@ namespace bg3dialogreader
             }
         }
 
-        private async void button1_Click(object sender, EventArgs e)
-        {
-            checkBox1.Enabled = false;
-            button1.Enabled = false;
-            button2.Enabled = false;
-            button3.Enabled = false;
-            button4.Enabled = false;
-            button5.Enabled = false;
-            comboBox1.Enabled = false;
-            label6.Text = "(Creating database)";
-
-            File.Delete("bg3.db");
-
-            var watch = System.Diagnostics.Stopwatch.StartNew();
-
-
-            connection.Open();
-            sqlitecommand.Connection = connection;
-            sqlitecommand.CommandText = "CREATE TABLE tagsflags (uuid text, name text, description text)";
-            sqlitecommand.ExecuteNonQuery();
-            sqlitecommand.CommandText = "CREATE UNIQUE INDEX indx ON tagsflags(uuid)";
-            sqlitecommand.ExecuteNonQuery();
-
-            sqlitecommand.CommandText = "begin";
-            sqlitecommand.ExecuteNonQuery();
-
-
-
-
-                
-
-            richTextBox1.AppendText("Parsing: " + comboBox1.Text + ".pak");
-
-            await Task.Run(() => parsetranslation());
-            richTextBox1.AppendText("- Done\n");
-
-            richTextBox1.AppendText("Parsing: Gustav.pak ");
-            await Task.Run(() => readfiletable("\\Gustav.pak"));
-            richTextBox1.AppendText("- Done\n");
-
-            richTextBox1.AppendText("Parsing: Shared.pak ");
-            await Task.Run(() => readfiletable("\\Shared.pak"));
-            richTextBox1.AppendText("- Done\n");
-
-            foreach (var file in Directory.GetFiles(bg3path))
-            {
-                if (Path.GetFileName(file).StartsWith("Patch"))
-                {
-                    richTextBox1.AppendText("Parsing: " + Path.GetFileName(file) + " ");
-                    await Task.Run(() => readfiletable("\\" + Path.GetFileName(file)));
-                    richTextBox1.AppendText("- Done\n");
-                }
-            }
-
-            richTextBox1.AppendText("Parsing: VoiceMeta.pak ");
-            await Task.Run(() => readfiletable("\\Localization\\VoiceMeta.pak"));
-            richTextBox1.AppendText("- Done\n");
-
-
-            richTextBox1.AppendText("Finalizing ");
-
-            await Task.Run(() => finaliz());
-
-            richTextBox1.AppendText("- Done\n");
-
-            sqlitecommand.CommandText = "end";
-            sqlitecommand.ExecuteNonQuery();
-
-            connection.Close();
-
-            watch.Stop();
-
-            DateTime fd = File.GetCreationTime("bg3.db");
-            label6.Text = "(Database created: " + fd.ToString() + ")";
-
-            MessageBox.Show("Time: " + watch.Elapsed.TotalSeconds.ToString() + "sec", "Done");
-
-            
-
-            checkBox1.Enabled = true;
-            button1.Enabled = true;
-            button2.Enabled = true;
-            button3.Enabled = true;
-            button4.Enabled = true;
-            button5.Enabled = true;
-            comboBox1.Enabled = true;
-        }
         public static TreeNode MakeTreeFromPaths(List<string> paths, string rootNodeName = "Dialogs", char separator = '/')
         {
             var rootNode = new TreeNode(rootNodeName);
@@ -1002,151 +924,101 @@ namespace bg3dialogreader
                     {
                         currentNode.Tag = rpath[1] + ";" + rpath[2] + ";" + rpath[3] + ";" + rpath[4];
                     }
-                    
+
 
                 }
             }
             return rootNode;
         }
-        private async void button2_Click(object sender, EventArgs e)
+        public void convertd2(byte[] aasdasd, string pfi)
         {
-            dfc = 0;
-            exdialogs.Clear();
-            richTextBox1.Clear();
-            label1.Visible = true;
-            comboBox1.Enabled = false;
-            checkBox1.Enabled = false;
-            button1.Enabled = false;
-            button2.Enabled = false;
-            button3.Enabled = false;
-            button5.Enabled = false;
-            var watch = System.Diagnostics.Stopwatch.StartNew();
-
-            connection.Open();
-            sqlitecommand.Connection = connection;
-            sqlitecommand.CommandText = "begin";
-            sqlitecommand.ExecuteNonQuery();
-
-
-            foreach (var file in Directory.GetFiles(bg3path).Reverse())
-            {
-                if (Path.GetFileName(file).StartsWith("Patch"))
-                {
-                    richTextBox1.AppendText("Export from: " + Path.GetFileName(file) + " ");
-                    await Task.Run(() => readfiletable2("\\" + Path.GetFileName(file)));
-                    richTextBox1.AppendText("- Done\n");
-                }
-            }
-
-            richTextBox1.AppendText("Export from: Gustav.pak ");
-
-            await Task.Run(() => readfiletable2("\\Gustav.pak"));
-
-            richTextBox1.AppendText("- Done\n");
-            richTextBox1.AppendText("Export from: Shared.pak ");
-
-            await Task.Run(() => readfiletable2("\\Shared.pak"));
-
-            richTextBox1.AppendText("- Done\n");
-
-            checkBox1.Enabled = true;
-            button1.Enabled = true;
-            button2.Enabled = true;
-            button3.Enabled = true;
-            button5.Enabled = true;
-            comboBox1.Enabled = true;
-            sqlitecommand.CommandText = "end";
-            sqlitecommand.ExecuteNonQuery();
-            watch.Stop();
-            MessageBox.Show("Time: " + watch.Elapsed.TotalSeconds.ToString() + "sec", "Done");
-        }
-        public void convertd(byte[] aasdasd, string pfi)
-        {
-            connection.Open();
-            sqlitecommand.Connection = connection;
-
+            List<string> final = new List<string>();
+            Rootobject root = JsonConvert.DeserializeObject<Rootobject>(Encoding.UTF8.GetString(aasdasd));
+            int index = 0;
+            Dictionary<string, int> uuidToNodeId = new Dictionary<string, int>();
+            Dictionary<int, List<int>> childDict = new Dictionary<int, List<int>>();
+            Dictionary<int, List<string>> textlines = new Dictionary<int, List<string>>();
+            Dictionary<int, string> aliases = new Dictionary<int, string>();
+            Dictionary<int, string> jumps = new Dictionary<int, string>();
             
 
-            //var ghhahre = Directory.GetFiles("Dialogs\\", "*", SearchOption.AllDirectories);
+            foreach (var node in root.save.regions.dialog.nodes[0].node)
+            {
+                uuidToNodeId.Add(node.UUID.value, index);
+                index++;
+            }
+            index = 0;
+            foreach (var node in root.save.regions.dialog.nodes[0].node)
+            {
+                List<int> childList1 = new List<int>();
+                if (node.children?[0].child?[0].UUID?.value != null)
+                {
+                    foreach (var child in node.children[0].child)
+                    {
+                        childList1.Add(uuidToNodeId[child.UUID.value]);
+                    }
+                }
+                childDict.Add(index, childList1);
+                index++;
+            }
 
-            //var dialog = JObject.Parse(File.ReadAllText("Dialogs\\Act3\\EndGame\\END_BrainBattle_CombatOver.lsj"));
-            final.Clear();
-
-            string dddddddddd = Encoding.UTF8.GetString(aasdasd.TakeWhile(a => a != 0).ToArray());
-
-            var dialog = JObject.Parse(dddddddddd);
-
-            List<string> speakers = new List<string>();
-            List<string> root = new List<string>();
+            List<int> rootnodes = new List<int>();
             Dictionary<string, string> speakersdict = new Dictionary<string, string>();
 
-            JToken speakerlist = null;
-            JToken rootnodelist = null;
-
-            var nodelist = dialog["save"]["regions"]["dialog"]["nodes"][0]["node"];
+            string synopsis = root.save.regions.editorData.synopsis.value;
+            string howtotrigger = root.save.regions.editorData.HowToTrigger.value;
 
 
-            speakerlist = dialog["save"]["regions"]["dialog"]["speakerlist"][0]["speaker"];
-                
-            rootnodelist = dialog["save"]["regions"]["dialog"]["nodes"][0]["RootNodes"];
-            string synopsis = dialog["save"]["regions"]["editorData"]["synopsis"]["value"].ToString();
-            string howtotrigger = dialog["save"]["regions"]["editorData"]["HowToTrigger"]["value"].ToString();
-
-            if (speakerlist != null)
+            if (root.save.regions.dialog.speakerlist?[0].speaker?[0].list?.value != null)
             {
-                foreach (var item in speakerlist)
+                foreach (var item in root.save.regions.dialog.speakerlist[0].speaker)
                 {
-                    if (item["list"] != null)
+                    if (item.list != null)
                     {
-                        speakers.Add(item["list"]["value"].ToString());
-                        speakersdict[item["index"]["value"].ToString()] = item["list"]["value"].ToString();
+                        speakersdict.Add(item.index.value, item.list.value);
                     }
                 }
             }
-            if (rootnodelist != null)
+            if (root.save.regions.dialog.nodes?[0].RootNodes?[0].RootNodes?.value != null)
             {
-                foreach (var x in rootnodelist)
+                foreach (var item in root.save.regions.dialog.nodes[0].RootNodes)
                 {
-                    var r = getuuididx(x["RootNodes"]["value"].ToString(), nodelist);
-                    root.Add("(" + r.ToString() + ")");
+
+                    rootnodes.Add(uuidToNodeId[item.RootNodes.value]);
                 }
             }
             else
-                root.Add("(" + 0.ToString() + ")");
-
-            var nodes = nodelist
-                .SelectTokens("$..*")
-                .Where(t => !t.HasValues)
-                .ToDictionary(t => t.Path, t => t.ToString());
-
+            {
+                rootnodes.Add(0);//
+            }
             Dictionary<int, List<string>> strings = new Dictionary<int, List<string>>();
 
             List<List<string>> listoflists = new List<List<string>>();
             List<string> uuidlistcheck = new List<string>();
 
-
-
-            // int nodescount = ( as JObject).Count;
-            for (int nodeidx = 0; nodeidx < nodelist.Count(); nodeidx++)
+            index = 0;
+            foreach (var node in root.save.regions.dialog.nodes[0].node)
             {
-
-                string ttt = "save.regions.dialog.nodes[0].node[" + nodeidx.ToString() + "]";
                 string uuid = "";
                 string constructor = "";
-                List<string> childslist = new List<string>();
+                List<int> childList = new List<int>();
                 List<string> text = new List<string>();
-                string speaker = "><div><span class='nodeid'>" + nodeidx.ToString() + ". </span><a class='anchor' id='n" + nodeidx.ToString() + "'></a>";
+                
+                List<List<string>> textsss = new List<List<string>>();
+                string speaker = "><div><span class='nodeid'>" + index.ToString() + ". </span><a class='anchor' id='n" + index.ToString() + "'></a>";
+                int nodespeaker;
                 string alias = "";
                 List<string> tags = new List<string>();
                 List<string> checkflag = new List<string>();
                 List<string> setflag = new List<string>();
+                //List<string> setflag = new List<string>();
                 string approval = "";
                 string approval2 = "";
                 string poplevel = "";
                 string ability = "";
                 string skill = "";
                 string difficulty = "";
-                string advantage = "";
+                int advantage = 0;
                 string rollres = "";
                 string jump = "";
                 string endnode = "";
@@ -1166,308 +1038,297 @@ namespace bg3dialogreader
 
                 List<string> links = new List<string>();
                 List<string> test = new List<string>();
-
                 List<string> uuidlist = new List<string>();
-                test.Add("[" + nodeidx.ToString() + "]");
-                //for (int x = 0; x < nodes.Count; x++)
-                foreach (var item in nodes)
+                test.Add("[" + index.ToString() + "]");
+                //uuid
+                uuid = node.UUID.value;
+                //text and rulletags
+                if (node.TaggedTexts?[0].TaggedText?[0].TagTexts?[0].TagText?[0].TagText?.handle != null)
+                {
+                    foreach (var texts in node.TaggedTexts[0].TaggedText)
+                    {
+                        List<string> textags = new List<string>();
+                        List<string> textsrules = new List<string>();
+                        //text.Add(texts.TagTexts?[0].TagText?[0].TagText?.handle);
+                        foreach (var itemtagtext in texts.TagTexts[0].TagText)
+                        {
+                            if (adgg.ContainsKey(itemtagtext.TagText.handle))
+                                textags.Add("<span class='dialog'>" + adgg[itemtagtext.TagText.handle].Split(new[] { "&----&" }, StringSplitOptions.None)[0].Replace("<br>", "&lt;br&gt;") + "</span>");
+                            else
+                                textags.Add("<span class='dialog'>" + itemtagtext.TagText.handle + "</span>");
+
+                            
+                        }
+
+
+                        if (texts.RuleGroup?[0].Rules?[0].Rulee?[0].Tags?[0].Tag?[0].Object?.value != null)
+                        {
+                            foreach (var rules in texts.RuleGroup[0].Rules[0].Rulee)
+                            {
+                                foreach (var rule in rules.Tags[0].Tag)
+                                {
+                                    //text.Add(rule.Object.value);
+                                    if (adgg.ContainsKey(rule.Object.value))
+                                        textsrules.Add("<span class='ruletag' title='" + adgg[rule.Object.value].Split(new[] { "&----&" }, StringSplitOptions.None)[1].ToString().Replace("'", "&#39") + "'>" + adgg[rule.Object.value].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() + "</span>");
+                                    else
+                                        textsrules.Add("<span class='ruletag' title='None'>" + rule.Object.value + "</span>");
+                                }
+                            }
+
+                        }
+
+                        foreach (var item in textags)
+                        {
+                            List<string> listnew = [item, .. textsrules];
+                            textsss.Add(listnew);
+                        }
+
+                        //textss.Reverse(1, textss.Count - 1);
+                        
+                    }
+                }
+                //textlines.Add(index, text);
+                //childnodes
+                if (node.children?[0].child?[0].UUID?.value != null)
+                {
+                    foreach (var item in childDict)
+                    {
+                        if (item.Value.Contains(index))
+                        {
+                            ischild = true;
+                        }
+                    }
+                    foreach (var child in node.children[0].child)
+                    {
+                        if (rootnodes.Contains(index) || ischild)
+                        {
+                            if (!uuidlistcheck.Contains(child.UUID.value))
+                            {
+                                uuidlistcheck.Add(child.UUID.value);
+                                uuidlist.Add(uuidToNodeId[child.UUID.value].ToString());
+                            }
+                            else
+                            {
+                                links.Add("[+++" + uuidToNodeId[child.UUID.value].ToString() + "+++]");
+                            }
+                        }
+                        //childList.Add(uuidToNodeId[child.UUID.value]);
+                    }
+                }
+                //childDict.Add(index, childList);
+                //setflag
+                if (node.setflags?[0].flaggroup != null)
+                {
+                    foreach (var flagsetgroup in node.setflags[0].flaggroup)
+                    {
+                        foreach (var flagsetgroupitem in flagsetgroup.flag)
+                        {
+                            if (adgg.ContainsKey(flagsetgroupitem.UUID.value))
+                                if (flagsetgroupitem.value.value)
+                                    setflag.Add("<span class='setflag' title='" + adgg[flagsetgroupitem.UUID.value].Split(new[] { "&----&" }, StringSplitOptions.None)[1].Replace("'", "&#39") + "'>" + adgg[flagsetgroupitem.UUID.value].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() + "</span>");
+                                else
+                                    setflag.Add("<span class='setflag' title='" + adgg[flagsetgroupitem.UUID.value].Split(new[] { "&----&" }, StringSplitOptions.None)[1].Replace("'", "&#39") + "'>" + adgg[flagsetgroupitem.UUID.value].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() + "</span>" + " = " + flagsetgroupitem.value.value);
+                            else
+                                if (flagsetgroupitem.value.value)
+                                    setflag.Add("<span class='setflag' title='None'>" + flagsetgroupitem.UUID.value + "</span>");
+                                else
+                                    setflag.Add("<span class='setflag' title='None'>" + flagsetgroupitem.UUID.value + "</span>" + " = " + flagsetgroupitem.value.value);
+                            //setflag.Add(flagsetgroupitem.UUID.value, flagsetgroupitem.value.value);
+                        }
+                    }
+                }
+                //checkflag
+                if (node.checkflags?[0].flaggroup != null)
+                {
+                    foreach (var flagcheckgroup in node.checkflags[0].flaggroup)
+                    {
+                        foreach (var flagcheckgroupitem in flagcheckgroup.flag)
+                        {
+                            if (adgg.ContainsKey(flagcheckgroupitem.UUID.value))
+                                if (flagcheckgroupitem.value.value)
+                                    checkflag.Add("<span class='checkflag' title='" + adgg[flagcheckgroupitem.UUID.value].Split(new[] { "&----&" }, StringSplitOptions.None)[1].ToString().Replace("'", "&#39") + "'>" + adgg[flagcheckgroupitem.UUID.value].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() + "</span>");
+                                else
+                                    checkflag.Add("<span class='checkflag' title='" + adgg[flagcheckgroupitem.UUID.value].Split(new[] { "&----&" }, StringSplitOptions.None)[1].ToString().Replace("'", "&#39") + "'>" + adgg[flagcheckgroupitem.UUID.value].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() + "</span>" + " = " + flagcheckgroupitem.value.value);
+                            else
+                                if (flagcheckgroupitem.value.value)
+                                    checkflag.Add("<span class='checkflag' title='None'>" + flagcheckgroupitem.UUID.value + "</span>");
+                                else
+                                    checkflag.Add("<span class='checkflag' title='None'>" + flagcheckgroupitem.UUID.value + "</span>" + " = " + flagcheckgroupitem.value.value);
+                            //checkflag.Add(flagcheckgroupitem.UUID.value, flagcheckgroupitem.value.value);
+                        }
+                    }
+                }
+                //tags
+                if (node.Tags?[0].Tagg?[0].Tag != null)
+                {
+                    foreach (var taggs in node.Tags[0].Tagg)
+                    {
+                        if (adgg.ContainsKey(taggs.Tag.value))
+                            tags.Add("<span class='tags' title='" + adgg[taggs.Tag.value].Split(new[] { "&----&" }, StringSplitOptions.None)[1].ToString().Replace("'", "&#39") + "'>" + adgg[taggs.Tag.value].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() + "</span>");
+                        else
+                            tags.Add("<span class='tags' title='None'>" + taggs.Tag.value + "</span>");
+                        //tags.Add(taggs.Tag.value);
+                    }
+                }
+                
+                //alias
+                if (node.SourceNode?.value != null)
+                {
+                    //aliastar = index;
+                    test.Add("[===" + uuidToNodeId[node.SourceNode.value].ToString() + "===]");
+                    //aliases.Add(index, node.SourceNode.value);
+                }
+                //jump
+                if (node.jumptarget?.value != null)
                 {
 
-                    if (item.Key.StartsWith(ttt))
+                    if (node.jumptargetpoint?.value != null)
                     {
-                        if (item.Key == ttt + ".UUID.value")
+                        //jumps.Add(index, uuidToNodeId[node.jumptarget.value] + ":" + node.jumptargetpoint.value);
+                        jump = "<span class='goto' data-id='" + uuidToNodeId[node.jumptarget.value].ToString() + "'> Jump to Node " + uuidToNodeId[node.jumptarget.value].ToString() +" (" + node.jumptargetpoint.value + ")</span>";
+                        test.Add("[&&&" + uuidToNodeId[node.jumptarget.value].ToString() + "&&&]");
+                    }
+                    //else
+                    //{
+                        //jumps.Add(index, uuidToNodeId[node.jumptarget.value].ToString());
+                    //}
+                }
+                constructor = node.constructor.value;
+                if (node.endnode?.value != null)
+                {
+                    if (node.endnode.value)
+                    {
+                        endnode = "<span class='end'>End</span>";
+                    }
+                    //endnode = node.endnode.value;
+                }
+                if (node.PopLevel?.value != null)
+                {
+                    poplevel = node.PopLevel.value.ToString();
+                }
+                //speakerid
+                if (node.speaker?.value != null)
+                {
+                    if (node.speaker.value == -666)
+                        speaker = "><div><span class='nodeid'>" + index.ToString() + ". </span><a class='anchor' id='n" + index.ToString() + "'></a><div style='display:inline-block;'><div class='npc' style='display: inline-block;'>Narrator</div></a></div><span>: </span>";
+                    else if (node.speaker.value < 0)
+                        speaker = "><div><span class='nodeid'>" + index.ToString() + ". </span><a class='anchor' id='n" + index.ToString() + "'></a>";
+                    else
+                    {
+                        List<string> speakerlistidlist = new List<string>();
+                        List<string> speakerlistid = new List<string>(speakersdict[node.speaker.value.ToString()].Split(';'));
+                        if (speakerlistid.Count > 1)
                         {
-                            uuid = item.Value;
-                        }
-                        if (item.Key.Contains("TagText.handle"))
-                        {
-                            sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", item.Value));
-                            using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
+                            foreach (var speakerid in speakerlistid)
                             {
-                                if (reader.HasRows)
+                                if (adgg.ContainsKey(speakerid))
                                 {
-                                    while (reader.Read())
+                                    if (adgg[speakerid].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() == "Player")
                                     {
-                                        text.Add("<span class='dialog'>" + reader.GetValue(1).ToString().Replace("<br>", "&lt;br&gt;") + "</span>");
+                                        speakerlistidlist.Add("Player");
                                     }
-                                }
-                                else
-                                    text.Add("<span class='dialog'>" + item.Value + "</span>");
-                            }
-                            sqlitecommand.Parameters.Clear();
-                        }
-                        if (item.Key.Contains(".children") && item.Key.Contains(".UUID.value"))
-                        {
-                            
-                            ischild = getparentorsomething(uuid, nodes);
-                            ischildid = getuuididx(uuid, nodelist);
-                            childid = getuuididx(item.Value, nodelist);
-
-                            if (root.Contains("(" + ischildid + ")") || ischild)
-                            {
-                                if (!uuidlistcheck.Contains(item.Value))
-                                {
-                                    uuidlistcheck.Add(item.Value);
-                                    uuidlist.Add(childid.ToString());
+                                    else
+                                        speakerlistidlist.Add(adgg[speakerid].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString());
                                 }
                                 else
                                 {
-                                    links.Add("[+++" + childid.ToString() + "+++]");
+                                    speakerlistidlist.Add(speakerid);
                                 }
                             }
-                         
-
-                            
-
-                            
+                            speaker = "><div><span class='nodeid'>" + index.ToString() + ". </span><a class='anchor' id='n" + index.ToString() + "'></a><div style='display:inline-block;'><div class='npc' style='display: inline-block;'>" + string.Join(", ", speakerlistidlist.ToArray()) + "</div></a></div><span>: </span>";
                         }
-                        if (item.Key.Contains(".setflags") && item.Key.Contains(".UUID.value"))
+                        else
                         {
-                            sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", item.Value));
-                            using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
+                            string speakerid = speakersdict[node.speaker.value.ToString()];
+
+                            if (adgg.ContainsKey(speakerid))
                             {
-                                if (reader.HasRows)
+                                if (adgg[speakerid].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() == "Player")
                                 {
-                                    while (reader.Read())
+                                    speaker = "><div><span class='nodeid'>" + index.ToString() + ". </span><a class='anchor' id='n" + index.ToString() + "'></a><span class='npcplayer'>Player</span><span>: </span>";
+                                }
+                                else
+                                {
+                                    if (adgg[speakerid].Split(new[] { "&----&" }, StringSplitOptions.None)[1].ToString() != "")
                                     {
-                                        setflag.Add("<span class='setflag' title='" + reader.GetValue(2).ToString().Replace("'", "&#39") + "'>" + reader.GetValue(1).ToString() + "</span>");
+                                        speaker = "><div><span class='nodeid'>" + index.ToString() + ". </span><a class='anchor' id='n" + index.ToString() + "'></a><div style='display:inline-block;'><div class='npcgroup' title='" + adgg[speakerid].Split(new[] { "&----&" }, StringSplitOptions.None)[1].ToString().Replace("'", "&#39") + "' style='display: inline-block;'>" + adgg[speakerid].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() + "</div></a></div><span>: </span>";
                                     }
+                                    else
+                                        speaker = "><div><span class='nodeid'>" + index.ToString() + ". </span><a class='anchor' id='n" + index.ToString() + "'></a><div style='display:inline-block;'><div class='npc' style='display: inline-block;'>" + adgg[speakerid].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() + "</div></a></div><span>: </span>";
                                 }
-                                else
-                                    setflag.Add("<span class='setflag' title='None'>" + item.Value + "</span>");
                             }
-                            sqlitecommand.Parameters.Clear();
-                        }
-                        if (item.Key.Contains(".setflags") && item.Key.Contains(".value.value"))
-                            setflag.Add(item.Value);
+                            else
+                            {
+                                speaker = "><div><span class='nodeid'>" + index.ToString() + ". </span><a class='anchor' id='n" + index.ToString() + "'></a><div style='display:inline-block;'><div class='npc' style='display: inline-block;'>" + speakerid + "</div></a></div><span>: </span>";
+                            }
 
-                        if (item.Key.Contains(".checkflag") && item.Key.Contains(".UUID.value"))
-                        {
-                            sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", item.Value));
-                            using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
-                            {
-                                if (reader.HasRows)
-                                {
-                                    while (reader.Read())
-                                    {
-                                        checkflag.Add("<span class='checkflag' title='" + reader.GetValue(2).ToString().Replace("'", "&#39") + "'>" + reader.GetValue(1).ToString() + "</span>");
-                                    }
-                                }
-                                else
-                                    checkflag.Add("<span class='checkflag' title='None'>" + item.Value + "</span>");
-                            }
-                            sqlitecommand.Parameters.Clear();
                         }
-                        if (item.Key.Contains(".checkflag") && item.Key.Contains(".value.value"))
-                            checkflag.Add(item.Value);
+                    }
 
-                        if (item.Key.Contains("Rules") && item.Key.Contains(".Object.value"))
-                        {
-                            sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", item.Value));
-                            using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
-                            {
-                                if (reader.HasRows)
-                                {
-                                    while (reader.Read())
-                                    {
-                                        text.Add("<span class='ruletag' title='" + reader.GetValue(2).ToString().Replace("'", "&#39") + "'>" + reader.GetValue(1).ToString() + "</span>");
-                                    }
-                                }
-                                else
-                                    text.Add("<span class='ruletag' title='None'>" + item.Value + "</span>");
-                            }
-                            sqlitecommand.Parameters.Clear();
-                        }
 
-                        if (item.Key.Contains("Tags") && item.Key.Contains(".Tag.value"))
+                    //nodespeaker = node.speaker.value;
+                }
+
+                if (node.editorData?[0].data?[0].key?.value != null)
+                {
+                    foreach (var data in node.editorData[0].data)
+                    {
+                        if (data.key.value == "CinematicNodeContext")
                         {
-                            sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", item.Value));
-                            using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
-                            {
-                                if (reader.HasRows)
-                                {
-                                    while (reader.Read())
-                                    {
-                                        tags.Add("<span class='tags' title='" + reader.GetValue(2).ToString().Replace("'", "&#39") + "'>" + reader.GetValue(1).ToString() + "</span>");
-                                    }
-                                }
-                                else
-                                    tags.Add("<span class='tags' title='None'>" + item.Value + "</span>");
-                            }
-                            sqlitecommand.Parameters.Clear();
-                        }
-                        if (item.Key.Contains("SourceNode.value"))
-                        {
-                            aliastar = getuuididx(item.Value, nodelist);
-                            test.Add("[===" + aliastar.ToString() + "===]");
-                        }
-                        if (item.Key.Contains("jumptarget.value"))
-                        {
-                            jumptar = getuuididx(item.Value, nodelist);
-                            jump = "<span class='goto' data-id='" + jumptar.ToString() + "'> Jump to Node " + jumptar.ToString();
-                            test.Add("[&&&" + jumptar.ToString() + "&&&]");
-                        }
-                        if (item.Key.Contains("jumptargetpoint.value"))
-                        {
-                            jumptargetpoint = item.Value;
-                            jump += " (" + jumptargetpoint + ")</span>";
-                        }
-                        if (item.Key.Contains("constructor.value"))
-                            constructor = item.Value;
-                        if (item.Key.Contains("PopLevel"))
-                            poplevel = item.Value;
-                        if (item.Key.Contains("endnode.value"))
-                        {
-                            if (item.Value == "True")
-                            {
-                                endnode = "<span class='end'>End</span>";
-                            }
-                        }
-                        if (item.Value == "CinematicNodeContext")
-                        {
-                            CinematicNodeContext = nodes[item.Key.Replace("key.value", "val.value")];
+                            CinematicNodeContext = data.val.value;
                             if (CinematicNodeContext != "" && CinematicNodeContext != "<placeholder>")
                                 context += "CinematicNodeContext: " + CinematicNodeContext.Replace("'", "&#39") + "&#013;";
                         }
-                        if (item.Value == "InternalNodeContext")
+                        if (data.key.value == "InternalNodeContext")
                         {
-                            InternalNodeContext = nodes[item.Key.Replace("key.value", "val.value")];
-                            if (InternalNodeContext != "")
+                            InternalNodeContext = data.val.value;
+                            if(InternalNodeContext != "")
                                 context += "InternalNodeContext: " + InternalNodeContext.Replace("'", "&#39") + "&#013;";
                         }
-                        if (item.Value == "NodeContext")
+                        if (data.key.value == "NodeContext")
                         {
-                            NodeContext = nodes[item.Key.Replace("key.value", "val.value")];
+                            NodeContext = data.val.value;
                             if (NodeContext != "")
                                 context += "NodeContext: " + NodeContext.Replace("'", "&#39") + "&#013;";
                         }
-
-                        if (!item.Key.Contains("Rules") && item.Key.Contains(".speaker.value"))
-                        {
-                            if (item.Value == "-666")
-                                speaker = "><div><span class='nodeid'>" + nodeidx.ToString() + ". </span><a class='anchor' id='n" + nodeidx.ToString() + "'></a><div style='display:inline-block;'><div class='npc' style='display: inline-block;'>Narrator</div></a></div><span>: </span>";
-                            else if (Int32.Parse(item.Value) < 0)
-                                speaker = "><div><span class='nodeid'>" + nodeidx.ToString() + ". </span><a class='anchor' id='n" + nodeidx.ToString() + "'></a>";
-                            else
-                            {
-                                List<string> speakerlistidlist = new List<string>();
-                                List<string> speakerlistid = new List<string>(speakersdict[item.Value].Split(';'));
-                                if (speakerlistid.Count > 1)
-                                {
-                                    foreach (var speakerid in speakerlistid)
-                                    {
-                                        sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                                        sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", speakerid));
-                                        using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
-                                        {
-                                            if (reader.HasRows)
-                                            {
-                                                while (reader.Read())
-                                                {
-                                                    if (reader.GetValue(1).ToString() == "Player")
-                                                    {
-                                                        speakerlistidlist.Add("Player");
-                                                    }
-                                                    else
-                                                        speakerlistidlist.Add(reader.GetValue(1).ToString());
-                                                }
-                                            }
-                                            else
-                                                speakerlistidlist.Add(speakerid);
-                                        }
-                                        sqlitecommand.Parameters.Clear();
-                                    }
-                                    speaker = "><div><span class='nodeid'>" + nodeidx.ToString() + ". </span><a class='anchor' id='n" + nodeidx.ToString() + "'></a><div style='display:inline-block;'><div class='npc' style='display: inline-block;'>" + string.Join(", ", speakerlistidlist.ToArray()) + "</div></a></div><span>: </span>";
-                                }
-                                else
-                                {
-                                    string speakerid = speakersdict[item.Value];
-                                    sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                                    sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", speakerid));
-                                    using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
-                                    {
-                                        if (reader.HasRows)
-                                        {
-                                            while (reader.Read())
-                                            {
-                                                if (reader.GetValue(1).ToString() == "Player")
-                                                {
-                                                    speaker = "><div><span class='nodeid'>" + nodeidx.ToString() + ". </span><a class='anchor' id='n" + nodeidx.ToString() + "'></a><span class='npcplayer'>Player</span><span>: </span>";
-                                                }
-                                                else
-                                                {
-                                                    if (reader.GetValue(2).ToString() != "")
-                                                    {
-                                                        speaker = "><div><span class='nodeid'>" + nodeidx.ToString() + ". </span><a class='anchor' id='n" + nodeidx.ToString() + "'></a><div style='display:inline-block;'><div class='npcgroup' title='" + reader.GetValue(2).ToString().Replace("'", "&#39") + "' style='display: inline-block;'>" + reader.GetValue(1).ToString() + "</div></a></div><span>: </span>";
-                                                    }
-                                                    else
-                                                        speaker = "><div><span class='nodeid'>" + nodeidx.ToString() + ". </span><a class='anchor' id='n" + nodeidx.ToString() + "'></a><div style='display:inline-block;'><div class='npc' style='display: inline-block;'>" + reader.GetValue(1).ToString() + "</div></a></div><span>: </span>";
-                                                }
-                                            }
-                                        }
-                                        else
-                                            speaker = "><div><span class='nodeid'>" + nodeidx.ToString() + ". </span><a class='anchor' id='n" + nodeidx.ToString() + "'></a><div style='display:inline-block;'><div class='npc' style='display: inline-block;'>" + speakerid + "</div></a></div><span>: </span>";
-                                    }
-                                    sqlitecommand.Parameters.Clear();
-                                }
-                            }
-                        }
-                        if (item.Key.Contains(".ApprovalRatingID.value"))
-                        {
-                            sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", item.Value));
-                            using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
-                            {
-                                if (reader.HasRows)
-                                {
-                                    while (reader.Read())
-                                    {
-                                        approval = "<span class='approval'>" + reader.GetValue(1).ToString() + "</span>";
-                                    }
-                                }
-                                else
-                                    approval = "<span class='approval'>" + item.Value + "</span>";
-                            }
-                            sqlitecommand.Parameters.Clear();
-                        }
-                        if (item.Key.Contains("Success.value"))
-                            rollres = rollres + item.Value;
-                        if (item.Key.Contains("Ability.value"))
-                            ability = item.Value;
-                        if (item.Key.Contains("DifficultyClassID.value"))
-                        {
-                            sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                            sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", item.Value));
-                            using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
-                            {
-                                if (reader.HasRows)
-                                {
-                                    while (reader.Read())
-                                    {
-                                        difficulty = reader.GetValue(1).ToString();
-                                    }
-                                }
-                                else
-                                    difficulty = item.Value;
-                            }
-                            sqlitecommand.Parameters.Clear();
-                        }
-                        if (item.Key.Contains("Skill.value"))
-                            skill = item.Value;
-                        if (item.Key.Contains("Advantage.value"))
-                            advantage = item.Value;
-
-
                     }
-
                 }
 
 
+                //rolls
+                if (node.ApprovalRatingID?.value != null)
+                {
+                    if (adgg.ContainsKey(node.ApprovalRatingID.value))
+                        approval = "<span class='approval'>" + adgg[node.ApprovalRatingID.value].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString() + "</span>";
+                    else
+                        approval = "<span class='approval'>" + node.ApprovalRatingID.value + "</span>";
+
+                    //approval = node.ApprovalRatingID.value;
+                }
+                if (node.Success?.value != null)
+                {
+                    rollres = rollres + node.Success.value.ToString();
+                }
+                if (node.Ability?.value != null)
+                {
+                    ability = node.Ability.value;
+                }
+                if (node.DifficultyClassID?.value != null)
+                {
+                    if (adgg.ContainsKey(node.DifficultyClassID.value))
+                        difficulty = adgg[node.DifficultyClassID.value].Split(new[] { "&----&" }, StringSplitOptions.None)[0].ToString();
+                    else
+                        difficulty = node.DifficultyClassID.value;
+                    //difficulty = node.DifficultyClassID.value;
+                }
+                if (node.Skill?.value != null)
+                {
+                    skill = node.Skill.value;
+                }
+                if (node.Advantage?.value != null)
+                {
+                    advantage = node.Advantage.value;
+                }
 
                 foreach (var asd in uuidlist)
                 {
@@ -1479,6 +1340,8 @@ namespace bg3dialogreader
                 }
                 listoflists.Add(test);
 
+
+
                 string rolls = "";
                 if (constructor.Contains("eRoll"))
                     rolls = "<span class='rolls'>" + "Roll " + "(" + ability + ", " + skill + ") vs " + difficulty + " (" + advantage + ")" + "</span>";
@@ -1486,36 +1349,9 @@ namespace bg3dialogreader
                 if (context != "")
                     context = "<span class='context' title='" + context + "'><sup>devnote</sup></span>";
 
-
-                List<string> setflag2 = new List<string>();
-                for (int idx = 0; idx < setflag.Count; idx++)
+                if (textsss.Count > 0)
                 {
-                    if (setflag[idx] == "True")
-                    {
-                        setflag2.Add(setflag[idx - 1]);
-                    }
-                    else if (setflag[idx] == "False")
-                    {
-                        setflag2.Add(setflag[idx - 1] + " = False");
-                    }
-                }
-
-                List<string> checkflag2 = new List<string>();
-                for (int idx = 0; idx < checkflag.Count; idx++)
-                {
-                    if (checkflag[idx] == "True")
-                    {
-                        checkflag2.Add(checkflag[idx - 1]);
-                    }
-                    else if (checkflag[idx] == "False")
-                    {
-                        checkflag2.Add(checkflag[idx - 1] + " = False");
-                    }
-                }
-
-                if (text.Count > 0)
-                {
-                    text.Reverse();
+                    /* nothing to see here
                     List<int> aa = new List<int>();
                     for (int i = 0; i < text.Count; i++)
                     {
@@ -1540,43 +1376,39 @@ namespace bg3dialogreader
                         }
                         z.Add(sublist);
                     }
+                    */
 
 
                     List<string> xfh44ew = new List<string>();
-                    z.Reverse();
-                    foreach (var af in z) //string.Join(", ", setflag2.ToArray())
+                    foreach (var af in textsss) //string.Join(", ", setflag2.ToArray())
                     {
-                        xfh44ew.Add(speaker + string.Join(", ", af.ToArray()) + context + string.Join(", ", tags.ToArray()) + "<span class='checkflag'>" + string.Join(", ", checkflag2.ToArray()) + "</span>" + "<span class='setflag'>" + string.Join(", ", setflag2.ToArray()) + "</span>" + rolls + approval + "<br>" + endnode);
+                        xfh44ew.Add(speaker + string.Join(", ", af.ToArray()) + context + string.Join(", ", tags.ToArray()) + "<span class='checkflag'>" + string.Join(", ", checkflag.ToArray()) + "</span>" + "<span class='setflag'>" + string.Join(", ", setflag.ToArray()) + "</span>" + rolls + approval + "<br>" + endnode);
                     }
-                    strings[nodeidx] = xfh44ew;
+                    strings[index] = xfh44ew;
                 }
                 else
                 {
-                    strings[nodeidx] = new List<string>() { speaker + "[" + constructor + "] " + poplevel + jump + context + rollres + string.Join(", ", tags.ToArray()) + "<span class='checkflag'>" + string.Join(", ", checkflag2.ToArray()) + "</span>" + "<span class='setflag'>" + string.Join(", ", setflag2.ToArray()) + "</span>" + rolls + approval + "<br>" + endnode };
+                    strings[index] = new List<string>() { speaker + "[" + constructor + "] " + poplevel + jump + context + rollres + string.Join(", ", tags.ToArray()) + "<span class='checkflag'>" + string.Join(", ", checkflag.ToArray()) + "</span>" + "<span class='setflag'>" + string.Join(", ", setflag.ToArray()) + "</span>" + rolls + approval + "<br>" + endnode };
                 }
 
 
 
-
-
-
-
+                index++;
             }
-            List<int> lst = root.Select(ee => int.Parse(ee.Substring(1, ee.Length - 2))).ToList();
-            lst.Sort();
-            root = lst.Select(ee => "(" + ee.ToString() + ")").ToList();
+
+            rootnodes.Sort();
             int hhh = 0;
-            foreach (var rrroot in root)
+            foreach (var rrroot in rootnodes)
             {
-                textt(listoflists, rrroot, hhh, strings);
+                textt(listoflists, "(" + rrroot + ")", hhh, strings, final);
             }
 
-            writef(synopsis, pfi, howtotrigger);
+            writef(synopsis, pfi, howtotrigger, final);
 
         }
-        public List<string> final = new List<string>();
 
-        public void writef(string synopsis, string pfi, string howtotrigger)
+
+        public void writef(string synopsis, string pfi, string howtotrigger, List<string> final)
         {
             List<string> dd = new List<string>();
 
@@ -1616,15 +1448,18 @@ namespace bg3dialogreader
                 depth = newDepth;
             }
 
-            
+
 
             dd.Add("</body></html>");
             string path = ddd[1].Replace(".lsj", ".html");
             Directory.CreateDirectory(Path.GetDirectoryName(AppDomain.CurrentDomain.BaseDirectory + path));
             File.WriteAllLines(AppDomain.CurrentDomain.BaseDirectory + path, dd);//AppDomain.CurrentDomain.BaseDirectory +
             //MessageBox.Show("Test");
+            //dfc2++;
+            //converttasks.RemoveAll(x => x.IsCompleted);
+            //this.Invoke(new MethodInvoker(delegate () { labelExportedFilesCounter.Text = dfc2.ToString(); }));
         }
-        public void textt(List<List<string>> listoflists, string rootindx, int hhh, Dictionary<int, List<string>> strings)
+        public void textt(List<List<string>> listoflists, string rootindx, int hhh, Dictionary<int, List<string>> strings, List<string> final)
         {
             foreach (var asd in listoflists)
             {
@@ -1668,7 +1503,7 @@ namespace bg3dialogreader
                     hhh += 1;
                     foreach (var l in matching)
                     {
-                        textt(listoflists, l, hhh, strings);
+                        textt(listoflists, l, hhh, strings, final);
                     }
 
                 }
@@ -1693,7 +1528,7 @@ namespace bg3dialogreader
                 depth = newDepth;
             }
         }
-        public bool getparentorsomething(string uuid, Dictionary<string,string> nodes)
+        public bool getparentorsomething(string uuid, Dictionary<string, string> nodes)
         {
 
             foreach (var item in nodes)
@@ -1721,37 +1556,6 @@ namespace bg3dialogreader
             return 0;
         }
 
-
-
-
-        private void button3_Click(object sender, EventArgs e)
-        {
-            OpenFileDialog dialog = new OpenFileDialog();
-            dialog.Filter = "Any *.pak in Data | *.pak";
-            if (dialog.ShowDialog() == DialogResult.OK)
-            {
-                comboBox1.Items.Clear();
-                bg3path = Path.GetDirectoryName(dialog.FileName);
-                if (File.Exists(bg3path + "\\Localization\\English.pak"))
-                    comboBox1.Items.Add("English");
-                var locdirs = Directory.GetDirectories(bg3path + "\\Localization\\");
-                for (int l = 0; l < locdirs.Length; l++)
-                {
-                    if (File.Exists(bg3path + "\\Localization\\" + Path.GetFileNameWithoutExtension(locdirs[l]) + "\\" + Path.GetFileNameWithoutExtension(locdirs[l]) + ".pak"))
-                        comboBox1.Items.Add(Path.GetFileNameWithoutExtension(locdirs[l]));
-                }
-                comboBox1.SelectedItem = comboBox1.Items[0];
-                button1.Enabled = true;
-                button5.Enabled = true;
-                comboBox1.Enabled = true;
-                if (File.Exists("bg3.db"))
-                {
-                    button2.Enabled = true;
-                    button4.Enabled = true;
-                    checkBox1.Enabled = true;
-                }
-            }
-        }
         private void readfiletable3(string file)
         {
             string pathfile = bg3path + file;
@@ -1917,9 +1721,9 @@ namespace bg3dialogreader
                     if (lsj[i].Contains("\"UUID\" : {\"type\" : \"FixedString\","))
                     {
                         var result = lsj[i].Split('"').Where((ss, aa) => aa % 2 == 1).ToList()[4];
-                        sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", result));
-                        using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
+                        sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", result));
+                        using (SqliteDataReader reader = sqliteCommand.ExecuteReader())
                         {
                             if (reader.HasRows)
                             {
@@ -1929,7 +1733,7 @@ namespace bg3dialogreader
                                 }
                             }
                         }
-                        sqlitecommand.Parameters.Clear();
+                        sqliteCommand.Parameters.Clear();
                     }
 
                     lsj[i] = lsj[i].Replace("\"UUID\" : {\"type\" : \"FixedString\",", "\"name\" : {\"type\" : \"FixedString\",");
@@ -1949,9 +1753,9 @@ namespace bg3dialogreader
                     if (lsj[i].Contains("\"Object\" : {\"type\" : \"guid\", \"value\""))
                     {
                         var result = lsj[i].Split('"').Where((ss, aa) => aa % 2 == 1).ToList()[4];
-                        sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                        sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", result));
-                        using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
+                        sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", result));
+                        using (SqliteDataReader reader = sqliteCommand.ExecuteReader())
                         {
                             if (reader.HasRows)
                             {
@@ -1961,16 +1765,16 @@ namespace bg3dialogreader
                                 }
                             }
                         }
-                        sqlitecommand.Parameters.Clear();
+                        sqliteCommand.Parameters.Clear();
                     }
                 }
 
                 if (lsj[i].Contains("\"Tag\" : {\"type\" : \"guid\", \"value\""))
                 {
                     var result = lsj[i].Split('"').Where((ss, aa) => aa % 2 == 1).ToList()[4];
-                    sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                    sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", result));
-                    using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
+                    sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", result));
+                    using (SqliteDataReader reader = sqliteCommand.ExecuteReader())
                     {
                         if (reader.HasRows)
                         {
@@ -1980,8 +1784,11 @@ namespace bg3dialogreader
                             }
                         }
                     }
-                    sqlitecommand.Parameters.Clear();
+                    sqliteCommand.Parameters.Clear();
                 }
+
+                
+
 
                 lsj[i] = lsj[i].Replace("\"value\" : true", "\"value\" : 1").Replace("\"value\" : false", "\"value\" : 0");
                 lsj[i] = lsj[i].Replace("\"constructor\" : {\"type\" : \"FixedString\", \"value\" : \"Alias\"},", "\"constructor\" : {\"type\" : \"FixedString\", \"value\" : \"TagAnswer\"},");
@@ -1998,15 +1805,15 @@ namespace bg3dialogreader
                     .Replace("\"type\" : \"LSString\"", "\"type\" : 23")
                     .Replace("\"type\" : \"guid\"", "\"type\" : 22")
                     .Replace("\"type\" : \"TranslatedString\"", "\"type\" : 28");
-
+                lsj[i] = lsj[i].Replace("\"transitionmode\" : {\"type\" : 1, \"value\" : 2}", "\"transitionmode\" : {\"type\" : 1, \"value\" : 0}");
 
                 if (lsj[i].Contains("handle"))
                 {
                     var value = lsj[i].Split('"');
 
-                    sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                    sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", value[3]));
-                    using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
+                    sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", value[3]));
+                    using (SqliteDataReader reader = sqliteCommand.ExecuteReader())
                     {
                         if (reader.HasRows)
                         {
@@ -2016,7 +1823,7 @@ namespace bg3dialogreader
                             }
                         }
                     }
-                    sqlitecommand.Parameters.Clear();
+                    sqliteCommand.Parameters.Clear();
                 }
             }
 
@@ -2025,64 +1832,10 @@ namespace bg3dialogreader
             var ddd = filename.Split(new string[] { "/Story/Dialogs/" }, StringSplitOptions.None);
             Directory.CreateDirectory(Path.GetDirectoryName(AppDomain.CurrentDomain.BaseDirectory + "\\Dialogs_DOS2DefEd\\" + ddd[1]));
             File.WriteAllLines(AppDomain.CurrentDomain.BaseDirectory + "\\Dialogs_DOS2DefEd\\" + ddd[1], lsj);
-            dfc++;
-            this.Invoke(new MethodInvoker(delegate () { label2.Text = dfc.ToString(); }));
+            dfc2++;
+            this.Invoke(new MethodInvoker(delegate () { labelExportedFilesCounter.Text = dfc2.ToString(); }));
         }
 
-        private async void button4_Click(object sender, EventArgs e)
-        {
-            dfc = 0;
-            exdialogs.Clear();
-            richTextBox1.Clear();
-            label1.Visible = true;
-            comboBox1.Enabled = false;
-            checkBox1.Enabled = false;
-            button1.Enabled = false;
-            button2.Enabled = false;
-            button3.Enabled = false;
-            button4.Enabled = false;
-            button5.Enabled = false;
-            var watch = System.Diagnostics.Stopwatch.StartNew();
-
-            connection.Open();
-            sqlitecommand.Connection = connection;
-            sqlitecommand.CommandText = "begin";
-            sqlitecommand.ExecuteNonQuery();
-
-
-            foreach (var file in Directory.GetFiles(bg3path).Reverse())
-            {
-                if (Path.GetFileName(file).StartsWith("Patch"))
-                {
-                    richTextBox1.AppendText("Export from: " + Path.GetFileName(file) + " ");
-                    await Task.Run(() => readfiletable3("\\" + Path.GetFileName(file)));
-                    richTextBox1.AppendText("- Done\n");
-                }
-            }
-
-            richTextBox1.AppendText("Export from: Gustav.pak ");
-
-            await Task.Run(() => readfiletable3("\\Gustav.pak"));
-
-            richTextBox1.AppendText("- Done\n");
-            richTextBox1.AppendText("Export from: Shared.pak ");
-
-            await Task.Run(() => readfiletable3("\\Shared.pak"));
-
-            richTextBox1.AppendText("- Done\n");
-
-            checkBox1.Enabled = true;
-            button1.Enabled = true;
-            button2.Enabled = true;
-            button3.Enabled = true;
-            button4.Enabled = true;
-            button5.Enabled = true;
-            comboBox1.Enabled = true;
-            sqlitecommand.CommandText = "end";
-            sqlitecommand.ExecuteNonQuery();
-            watch.Stop();
-            MessageBox.Show("Time: " + watch.Elapsed.TotalSeconds.ToString() + "sec", "Done");
-        }
         private void readfiletable4(string file)
         {
             string pathfile = bg3path + file;
@@ -2138,113 +1891,7 @@ namespace bg3dialogreader
                 }
             }
         }
-        private async void button5_Click(object sender, EventArgs e)
-        {
-            fdialogs.Clear();
-            button5.Enabled = false;
-            button1.Enabled = false;
-            button2.Enabled = false;
-            button4.Enabled = false;
-            treeView1.Nodes.Clear();
-            connection.Open();
-            sqlitecommand.Connection = connection;
-            foreach (var file in Directory.GetFiles(bg3path))
-            {
-                if (Path.GetFileName(file).StartsWith("Patch"))
-                {
-                    await Task.Run(() => readfiletable4("\\" + Path.GetFileName(file)));
-                }
-            }
-            await Task.Run(() => readfiletable4("\\Gustav.pak"));
-            await Task.Run(() => readfiletable4("\\Shared.pak"));
-            treeView1.Nodes.Add(MakeTreeFromPaths(fdialogs));
-            treeView1.Sort();
-            if (adialogs.Count == 0)
-            {
-                loadaudiotable();
-            }
-            connection.Close();
-            button5.Enabled = true;
-            button1.Enabled = true;
-            button2.Enabled = true;
-            button4.Enabled = true;
-        }
 
-        private void treeView1_MouseDoubleClick(object sender, MouseEventArgs e)
-        {
-            connection.Open();
-            sqlitecommand.Connection = connection;
-            if (treeView1.SelectedNode != null && treeView1.SelectedNode.Tag != null)
-            {
-                label10.Text = treeView1.SelectedNode.FullPath;
-                listView1.Items.Clear();
-
-                var tags = treeView1.SelectedNode.Tag.ToString().Split(';');
-                string pathfile = bg3path + tags[3];
-
-                using (FileStream fileStream = new FileStream(pathfile, FileMode.Open, FileAccess.Read))
-                {
-                    using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
-                    {
-                        binaryReader1.BaseStream.Position = Convert.ToInt64(tags[0]);
-                        int compressedSize = Convert.ToInt32(tags[1]);
-                        byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
-
-                        int fileBufferSize = Convert.ToInt32(tags[2]);
-                        var uncompressedList = new byte[fileBufferSize];
-                        int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
-
-                        //richTextBox1.Text = Encoding.UTF8.GetString(uncompressedList);
-                        var dialog = JObject.Parse(Encoding.UTF8.GetString(uncompressedList));
-                        var values = dialog
-                            .SelectTokens("$..*")
-                            .Where(t => !t.HasValues)
-                            .ToDictionary(t => t.Path, t => t.ToString());
-
-
-
-                        int nodes = dialog["save"]["regions"]["dialog"]["nodes"][0]["node"].Count();
-                        foreach (var item in values)
-                        {
-                            if (item.Key.Contains("TagText.handle"))
-                            {
-                                ListViewItem lvi = listView1.Items.Add(item.Value);
-                                sqlitecommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                                sqlitecommand.Parameters.Add(new SqliteParameter("@uuid", item.Value));
-                                using (SqliteDataReader reader = sqlitecommand.ExecuteReader())
-                                {
-                                    if (reader.HasRows)
-                                    {
-                                        while (reader.Read())
-                                        {
-                                            lvi.SubItems.Add(reader.GetValue(1).ToString());
-                                            lvi.SubItems.Add(reader.GetValue(2).ToString());
-                                        }
-                                    }
-                                }
-                                sqlitecommand.Parameters.Clear();
-                            }
-                        }
-                    }
-                }
-            }
-            connection.Close();
-
-        }
-
-        private void ListView1_DoubleClickAsync(object sender, EventArgs e)
-        {
-            if (File.Exists("vgmstream-cli.exe"))
-            {
-                if (adialogs.Count == 0)
-                {
-                    loadaudiotable();
-                }
-                bplay();
-            }
-            else
-                MessageBox.Show("vgmstream-cli.exe not found");
-        }
         public void loadaudiotable()
         {
             string voicepak = bg3path + "\\Localization\\Voice.pak";
@@ -2290,9 +1937,9 @@ namespace bg3dialogreader
         public void bplay()
         {
             string audiof = "";
-            if (listView1.SelectedItems[0].SubItems[2].Text != "")
+            if (listViewDialog.SelectedItems[0].SubItems[2].Text != "")
             {
-                audiof = listView1.SelectedItems[0].SubItems[2].Text;
+                audiof = listViewDialog.SelectedItems[0].SubItems[2].Text;
 
                 foreach (var item in adialogs)
                 {
@@ -2329,10 +1976,6 @@ namespace bg3dialogreader
             }
         }
 
-        private void linkLabel1_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
-        {
-            Process.Start("https://github.com/vgmstream/vgmstream/releases");
-        }
         public void extr(string afpath, string off, string zsize, string size)
         {
             string voicepak = bg3path + "\\Localization\\Voice.pak";
@@ -2371,9 +2014,402 @@ namespace bg3dialogreader
                     File.Delete(AppDomain.CurrentDomain.BaseDirectory + "\\Extracted_audio\\" + afname + ".wem");
                 }
             }
-            
+
         }
-        private void exportToolStripMenuItem_Click(object sender, EventArgs e)
+
+        public void LoadDB()
+        {
+            sqliteCommand.CommandText = "SELECT * FROM tagsflags";
+            using (SqliteDataReader reader = sqliteCommand.ExecuteReader())
+            {
+                if (reader.HasRows)
+                {
+
+                    while (reader.Read())
+                    {
+                        var asd1 = "";
+                        var asd2 = "";
+                        asd1 = reader.GetValue(0).ToString();
+                        asd2 = reader.GetValue(1).ToString() + "&----&" + reader.GetValue(2).ToString();
+                        adgg.Add(asd1, asd2);
+                    }
+
+                }
+
+            }
+            sqliteCommand.Parameters.Clear();
+        }
+        private async void buttonCreateDB_Click(object sender, EventArgs e)
+        {
+            checkBoxExportLSJ.Enabled = false;
+            buttonCreateDB.Enabled = false;
+            buttonExtractHTML.Enabled = false;
+            buttonOpen.Enabled = false;
+            buttonExtractDE2.Enabled = false;
+            buttonLoadTree.Enabled = false;
+            comboBoxLanguageSelect.Enabled = false;
+            labelDBInfo.Text = "(Creating database)";
+
+            File.Delete("bg3.db");
+
+            var watch = Stopwatch.StartNew();
+
+
+            connection.Open();
+            sqliteCommand.Connection = connection;
+            sqliteCommand.CommandText = "CREATE TABLE tagsflags (uuid text, name text, description text)";
+            sqliteCommand.ExecuteNonQuery();
+            sqliteCommand.CommandText = "CREATE UNIQUE INDEX indx ON tagsflags(uuid)";
+            sqliteCommand.ExecuteNonQuery();
+
+            sqliteCommand.CommandText = "begin";
+            sqliteCommand.ExecuteNonQuery();
+
+
+
+
+
+
+            richTextBoxLog.AppendText("Parsing: " + comboBoxLanguageSelect.Text + ".pak");
+
+            await Task.Run(() => parsetranslation());
+            richTextBoxLog.AppendText("- Done\n");
+
+            richTextBoxLog.AppendText("Parsing: Gustav.pak ");
+            await Task.Run(() => readfiletable("\\Gustav.pak"));
+            richTextBoxLog.AppendText("- Done\n");
+
+            richTextBoxLog.AppendText("Parsing: Shared.pak ");
+            await Task.Run(() => readfiletable("\\Shared.pak"));
+            richTextBoxLog.AppendText("- Done\n");
+
+            foreach (var file in Directory.GetFiles(bg3path))
+            {
+                if (Path.GetFileName(file).StartsWith("Patch"))
+                {
+                    richTextBoxLog.AppendText("Parsing: " + Path.GetFileName(file) + " ");
+                    await Task.Run(() => readfiletable("\\" + Path.GetFileName(file)));
+                    richTextBoxLog.AppendText("- Done\n");
+                }
+            }
+
+            richTextBoxLog.AppendText("Parsing: VoiceMeta.pak ");
+            await Task.Run(() => readfiletable("\\Localization\\VoiceMeta.pak"));
+            richTextBoxLog.AppendText("- Done\n");
+
+
+            richTextBoxLog.AppendText("Finalizing ");
+
+            await Task.Run(() => finaliz());
+
+            richTextBoxLog.AppendText("- Done\n");
+
+            sqliteCommand.CommandText = "end";
+            sqliteCommand.ExecuteNonQuery();
+
+            connection.Close();
+
+            watch.Stop();
+
+            DateTime fd = File.GetCreationTime("bg3.db");
+            labelDBInfo.Text = "(Database created: " + fd.ToString() + ")";
+
+            MessageBox.Show("Time: " + watch.Elapsed.TotalSeconds.ToString() + "sec", "Done");
+
+
+            checkBoxExportLSJ.Enabled = true;
+            buttonCreateDB.Enabled = true;
+            buttonExtractHTML.Enabled = true;
+            buttonOpen.Enabled = true;
+            buttonExtractDE2.Enabled = true;
+            buttonLoadTree.Enabled = true;
+            comboBoxLanguageSelect.Enabled = true;
+        }
+
+        private async void buttonExtractHTML_Click(object sender, EventArgs e)
+        {
+            dfc = 0;
+            dfc2 = 0;
+            
+
+            exdialogs.Clear();
+            richTextBoxLog.Clear();
+            labelExportedFiles.Visible = true;
+            labelExportedFilesCounter.Visible = true;
+            comboBoxLanguageSelect.Enabled = false;
+            checkBoxExportLSJ.Enabled = false;
+            buttonCreateDB.Enabled = false;
+            buttonExtractHTML.Enabled = false;
+            buttonOpen.Enabled = false;
+            buttonLoadTree.Enabled = false;
+            buttonExtractDE2.Enabled = false;
+            var watch = Stopwatch.StartNew();
+
+            connection.Open();
+            sqliteCommand.Connection = connection;
+            sqliteCommand.CommandText = "begin";
+            sqliteCommand.ExecuteNonQuery();
+
+            adgg.Clear();
+
+            LoadDB();
+
+            foreach (var file in Directory.GetFiles(bg3path).Reverse())
+            {
+                if (Path.GetFileName(file).StartsWith("Patch"))
+                {
+                    richTextBoxLog.AppendText("Load: " + Path.GetFileName(file) + " ");
+                    await Task.Run(() => readfiletable2("\\" + Path.GetFileName(file)));
+                    richTextBoxLog.AppendText("- Done\n");
+                }
+            }
+
+            richTextBoxLog.AppendText("Load: Gustav.pak ");
+
+            await Task.Run(() => readfiletable2("\\Gustav.pak"));
+
+            richTextBoxLog.AppendText("- Done\n");
+            richTextBoxLog.AppendText("Load: Shared.pak ");
+
+            await Task.Run(() => readfiletable2("\\Shared.pak"));
+
+
+
+            richTextBoxLog.AppendText("- Done\n");
+
+            richTextBoxLog.AppendText("Waiting for completion\n");
+
+            adgg.Clear();
+
+
+            richTextBoxLog.AppendText("Done\n");
+
+            checkBoxExportLSJ.Enabled = true;
+            buttonCreateDB.Enabled = true;
+            buttonExtractHTML.Enabled = true;
+            buttonOpen.Enabled = true;
+            buttonLoadTree.Enabled = true;
+            comboBoxLanguageSelect.Enabled = true;
+            buttonExtractDE2.Enabled = true;
+            sqliteCommand.CommandText = "end";
+            sqliteCommand.ExecuteNonQuery();
+            watch.Stop();
+            MessageBox.Show("Time: " + watch.Elapsed.TotalSeconds.ToString() + "sec", "Done");
+        }
+
+        private void buttonOpen_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog dialog = new()
+            {
+                Filter = "Any *.pak in Data | *.pak"
+            };
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                comboBoxLanguageSelect.Items.Clear();
+                bg3path = Path.GetDirectoryName(dialog.FileName);
+                if (File.Exists(bg3path + "\\Localization\\English.pak"))
+                    comboBoxLanguageSelect.Items.Add("English");
+                var locdirs = Directory.GetDirectories(bg3path + "\\Localization\\");
+                for (int l = 0; l < locdirs.Length; l++)
+                {
+                    if (File.Exists(bg3path + "\\Localization\\" + Path.GetFileNameWithoutExtension(locdirs[l]) + "\\" + Path.GetFileNameWithoutExtension(locdirs[l]) + ".pak"))
+                        comboBoxLanguageSelect.Items.Add(Path.GetFileNameWithoutExtension(locdirs[l]));
+                }
+                comboBoxLanguageSelect.SelectedItem = comboBoxLanguageSelect.Items[0];
+                buttonCreateDB.Enabled = true;
+                buttonLoadTree.Enabled = true;
+                comboBoxLanguageSelect.Enabled = true;
+                if (File.Exists("bg3.db"))
+                {
+                    buttonExtractHTML.Enabled = true;
+                    buttonExtractDE2.Enabled = true;
+                    checkBoxExportLSJ.Enabled = true;
+                }
+            }
+        }
+
+        private async void buttonExtractDE2_Click(object sender, EventArgs e)
+        {
+            dfc = 0;
+            exdialogs.Clear();
+            richTextBoxLog.Clear();
+            labelExportedFiles.Visible = true;
+            comboBoxLanguageSelect.Enabled = false;
+            checkBoxExportLSJ.Enabled = false;
+            buttonCreateDB.Enabled = false;
+            buttonExtractHTML.Enabled = false;
+            buttonOpen.Enabled = false;
+            buttonExtractDE2.Enabled = false;
+            buttonLoadTree.Enabled = false;
+            var watch = Stopwatch.StartNew();
+
+            connection.Open();
+            sqliteCommand.Connection = connection;
+            sqliteCommand.CommandText = "begin";
+            sqliteCommand.ExecuteNonQuery();
+
+
+            foreach (var file in Directory.GetFiles(bg3path).Reverse())
+            {
+                if (Path.GetFileName(file).StartsWith("Patch"))
+                {
+                    richTextBoxLog.AppendText("Export from: " + Path.GetFileName(file) + " ");
+                    await Task.Run(() => readfiletable3("\\" + Path.GetFileName(file)));
+                    richTextBoxLog.AppendText("- Done\n");
+                }
+            }
+
+            richTextBoxLog.AppendText("Export from: Gustav.pak ");
+
+            await Task.Run(() => readfiletable3("\\Gustav.pak"));
+
+            richTextBoxLog.AppendText("- Done\n");
+            richTextBoxLog.AppendText("Export from: Shared.pak ");
+
+            await Task.Run(() => readfiletable3("\\Shared.pak"));
+
+            richTextBoxLog.AppendText("- Done\n");
+
+            checkBoxExportLSJ.Enabled = true;
+            buttonCreateDB.Enabled = true;
+            buttonExtractHTML.Enabled = true;
+            buttonOpen.Enabled = true;
+            buttonExtractDE2.Enabled = true;
+            buttonLoadTree.Enabled = true;
+            comboBoxLanguageSelect.Enabled = true;
+            sqliteCommand.CommandText = "end";
+            sqliteCommand.ExecuteNonQuery();
+            watch.Stop();
+            MessageBox.Show("Time: " + watch.Elapsed.TotalSeconds.ToString() + "sec", "Done");
+        }
+
+        private async void buttonLoadTree_Click(object sender, EventArgs e)
+        {
+            fdialogs.Clear();
+
+            buttonLoadTree.Enabled = false;
+            buttonCreateDB.Enabled = false;
+            buttonExtractHTML.Enabled = false;
+            buttonExtractDE2.Enabled = false;
+            treeViewDialog.Nodes.Clear();
+            connection.Open();
+            sqliteCommand.Connection = connection;
+
+            adgg.Clear();
+            LoadDB();
+
+
+            foreach (var file in Directory.GetFiles(bg3path))
+            {
+                if (Path.GetFileName(file).StartsWith("Patch"))
+                {
+                    await Task.Run(() => readfiletable4("\\" + Path.GetFileName(file)));
+                }
+            }
+            await Task.Run(() => readfiletable4("\\Gustav.pak"));
+            await Task.Run(() => readfiletable4("\\Shared.pak"));
+            treeViewDialog.Nodes.Add(MakeTreeFromPaths(fdialogs));
+            treeViewDialog.Sort();
+            if (adialogs.Count == 0)
+            {
+                loadaudiotable();
+            }
+            connection.Close();
+            buttonLoadTree.Enabled = true;
+            buttonCreateDB.Enabled = true;
+            buttonExtractHTML.Enabled = true;
+            buttonExtractDE2.Enabled = true;
+        }
+
+        private void exportHTMLDialogToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            connection.Open();
+            sqliteCommand.Connection = connection;
+            if (treeViewDialog.SelectedNode != null && treeViewDialog.SelectedNode.Tag != null)
+            {
+                var tags = treeViewDialog.SelectedNode.Tag.ToString().Split(';');
+                string pathfile = bg3path + tags[3];
+
+                using (FileStream fileStream = new FileStream(pathfile, FileMode.Open, FileAccess.Read))
+                {
+                    using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
+                    {
+                        binaryReader1.BaseStream.Position = Convert.ToInt64(tags[0]);
+                        int compressedSize = Convert.ToInt32(tags[1]);
+                        byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
+
+                        int fileBufferSize = Convert.ToInt32(tags[2]);
+                        var uncompressedList = new byte[fileBufferSize];
+                        int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
+
+                        convertd2(uncompressedList, treeViewDialog.SelectedNode.FullPath.Replace("\\", "/"));
+                    }
+                }
+                MessageBox.Show("Done");
+            }
+            connection.Close();
+        }
+
+        private void exportDOS2DialogToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            connection.Open();
+            sqliteCommand.Connection = connection;
+            if (treeViewDialog.SelectedNode != null && treeViewDialog.SelectedNode.Tag != null)
+            {
+                var tags = treeViewDialog.SelectedNode.Tag.ToString().Split(';');
+                string pathfile = bg3path + tags[3];
+
+                using (FileStream fileStream = new FileStream(pathfile, FileMode.Open, FileAccess.Read))
+                {
+                    using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
+                    {
+                        binaryReader1.BaseStream.Position = Convert.ToInt64(tags[0]);
+                        int compressedSize = Convert.ToInt32(tags[1]);
+                        byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
+
+                        int fileBufferSize = Convert.ToInt32(tags[2]);
+                        var uncompressedList = new byte[fileBufferSize];
+                        int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
+
+                        dos2(uncompressedList, treeViewDialog.SelectedNode.FullPath.Replace("\\", "/"));
+                    }
+                }
+                MessageBox.Show("Done");
+            }
+            connection.Close();
+        }
+
+        private void exportLSJDialogToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (treeViewDialog.SelectedNode != null && treeViewDialog.SelectedNode.Tag != null)
+            {
+                var tags = treeViewDialog.SelectedNode.Tag.ToString().Split(';');
+                string pathfile = bg3path + tags[3];
+
+                using (FileStream fileStream = new FileStream(pathfile, FileMode.Open, FileAccess.Read))
+                {
+                    using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
+                    {
+                        binaryReader1.BaseStream.Position = Convert.ToInt64(tags[0]);
+                        int compressedSize = Convert.ToInt32(tags[1]);
+                        byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
+
+                        int fileBufferSize = Convert.ToInt32(tags[2]);
+                        var uncompressedList = new byte[fileBufferSize];
+                        int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
+
+                        //convertd(uncompressedList, treeView1.SelectedNode.FullPath.Replace("\\", "/"));
+                        var asd = treeViewDialog.SelectedNode.FullPath.Split(new string[] { "\\Story\\Dialogs\\" }, StringSplitOptions.None);
+
+                        Directory.CreateDirectory(Path.GetDirectoryName(AppDomain.CurrentDomain.BaseDirectory + "\\Dialogs_lsj\\" + asd[1]));
+                        File.WriteAllBytes(AppDomain.CurrentDomain.BaseDirectory + "\\Dialogs_lsj\\" + asd[1], uncompressedList);
+                    }
+                }
+                MessageBox.Show("Done");
+            }
+        }
+
+        private void exportAudioToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (File.Exists("vgmstream-cli.exe"))
             {
@@ -2381,180 +2417,95 @@ namespace bg3dialogreader
                 {
                     loadaudiotable();
                 }
+                List<string> dsel = new List<string>();
+                var ddd = "";
+                if (listViewDialog.SelectedItems.Count == 1)
+                {
+                    if (listViewDialog.SelectedItems[0].SubItems[2].Text == "")
+                    {
+                        MessageBox.Show("Selected line do not contain audio files");
+                    }
+                    else
+                    {
+                        ddd = listViewDialog.SelectedItems[0].SubItems[2].Text;
+                        foreach (var item in adialogs)
+                        {
+                            var itemp = item.Split(';');
+                            if (itemp[0].Contains(ddd))
+                            {
+                                extr(itemp[0], itemp[1], itemp[2], itemp[3]);
+                                break;
+                            }
+                        }
+                    }
+                }
+                else if (listViewDialog.SelectedItems.Count > 1)
+                {
+                    for (int i = 0; i < listViewDialog.SelectedItems.Count; i++)
+                    {
+                        if (listViewDialog.SelectedItems[i].SubItems[2].Text == "")
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            dsel.Add(listViewDialog.SelectedItems[i].SubItems[2].Text);
+
+                        }
+                    }
+                    if (dsel.Count == 0)
+                    {
+                        MessageBox.Show("Selected lines do not contain audio files");
+                    }
+                    foreach (var itemd in dsel)
+                    {
+                        foreach (var item in adialogs)
+                        {
+                            var itemp = item.Split(';');
+                            if (itemp[0].Contains(itemd))
+                            {
+                                extr(itemp[0], itemp[1], itemp[2], itemp[3]);
+                                break;
+                            }
+
+                        }
+
+                    }
+
+                }
+                else
+                    MessageBox.Show("Nothing selected");
+
+                MessageBox.Show("Done");
             }
             else
                 MessageBox.Show("vgmstream-cli.exe not found");
 
-            List<string> dsel = new List<string>();
-            var ddd = "";
-            if (listView1.SelectedItems.Count == 1)
-            {
-                if (listView1.SelectedItems[0].SubItems[2].Text == "")
-                {
-                    MessageBox.Show("Selected line do not contain audio files");
-                }
-                else
-                {
-                    ddd = listView1.SelectedItems[0].SubItems[2].Text;
-                    foreach (var item in adialogs)
-                    {
-                        var itemp = item.Split(';');
-                        if (itemp[0].Contains(ddd))
-                        {
-                            extr(itemp[0], itemp[1], itemp[2], itemp[3]);
-                            break;
-                        }
-                    }
-                }
-            }
-            else if(listView1.SelectedItems.Count > 1)
-            {
-                for (int i = 0; i < listView1.SelectedItems.Count; i++)
-                {
-                    if (listView1.SelectedItems[i].SubItems[2].Text == "")
-                    {
-                        continue;
-                    }
-                    else
-                    {
-                        dsel.Add(listView1.SelectedItems[i].SubItems[2].Text);
-                        
-                    }
-                }
-                if (dsel.Count == 0)
-                {
-                    MessageBox.Show("Selected lines do not contain audio files");
-                }
-                foreach (var itemd in dsel)
-                {
-                    foreach (var item in adialogs)
-                    {
-                        var itemp = item.Split(';');
-                        if (itemp[0].Contains(itemd))
-                        {
-                            extr(itemp[0], itemp[1], itemp[2], itemp[3]);
-                            break;
-                        }
 
-                    }
-                    
-                }
-
-            }
-            else
-                MessageBox.Show("Nothing selected");
-
-            MessageBox.Show("Done");
-        }
-
-        private void listView1_MouseClick(object sender, MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Right)
-            {
-                var focusedItem = listView1.FocusedItem;
-                if (focusedItem != null && focusedItem.Bounds.Contains(e.Location))
-                {
-                    contextMenuStrip1.Show(Cursor.Position);
-                }
-            }
-        }
-
-
-        private void treeView1_NodeMouseClick(object sender, TreeNodeMouseClickEventArgs e)
-        {
-            if (e.Button == MouseButtons.Right)
-            {
-                treeView1.SelectedNode = e.Node;
-                var focusedItem = treeView1.SelectedNode;
-                if (focusedItem != null && focusedItem.Bounds.Contains(e.Location))
-                {
-                    contextMenuStrip2.Show(Cursor.Position);
-                }
-            }
-        }
-
-        private void exportHtmlDialogToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            connection.Open();
-            sqlitecommand.Connection = connection;
-            if (treeView1.SelectedNode != null && treeView1.SelectedNode.Tag != null)
-            {
-                var tags = treeView1.SelectedNode.Tag.ToString().Split(';');
-                string pathfile = bg3path + tags[3];
-
-                using (FileStream fileStream = new FileStream(pathfile, FileMode.Open, FileAccess.Read))
-                {
-                    using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
-                    {
-                        binaryReader1.BaseStream.Position = Convert.ToInt64(tags[0]);
-                        int compressedSize = Convert.ToInt32(tags[1]);
-                        byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
-
-                        int fileBufferSize = Convert.ToInt32(tags[2]);
-                        var uncompressedList = new byte[fileBufferSize];
-                        int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
-
-                        convertd(uncompressedList, treeView1.SelectedNode.FullPath.Replace("\\", "/"));
-                    }
-                }
-                MessageBox.Show("Done");
-            }
-            connection.Close();
-            
-        }
-
-        private void exportDOS2DialogToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            connection.Open();
-            sqlitecommand.Connection = connection;
-            if (treeView1.SelectedNode != null && treeView1.SelectedNode.Tag != null)
-            {
-                var tags = treeView1.SelectedNode.Tag.ToString().Split(';');
-                string pathfile = bg3path + tags[3];
-
-                using (FileStream fileStream = new FileStream(pathfile, FileMode.Open, FileAccess.Read))
-                {
-                    using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
-                    {
-                        binaryReader1.BaseStream.Position = Convert.ToInt64(tags[0]);
-                        int compressedSize = Convert.ToInt32(tags[1]);
-                        byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
-
-                        int fileBufferSize = Convert.ToInt32(tags[2]);
-                        var uncompressedList = new byte[fileBufferSize];
-                        int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
-
-                        dos2(uncompressedList, treeView1.SelectedNode.FullPath.Replace("\\", "/"));
-                    }
-                }
-                MessageBox.Show("Done");
-            }
-            connection.Close();
-            
         }
 
         private void copyHandleToolStripMenuItem_Click(object sender, EventArgs e)
         {
             var h = "";
             List<string> dsel = new List<string>();
-            if (listView1.SelectedItems.Count == 1)
+            if (listViewDialog.SelectedItems.Count == 1)
             {
                 h = "";
-                h = listView1.SelectedItems[0].SubItems[0].Text;
+                h = listViewDialog.SelectedItems[0].SubItems[0].Text;
                 Clipboard.SetText(h);
             }
-            else if(listView1.SelectedItems.Count > 1)
+            else if (listViewDialog.SelectedItems.Count > 1)
             {
                 h = "";
-                for (int i = 0; i < listView1.SelectedItems.Count; i++)
+                for (int i = 0; i < listViewDialog.SelectedItems.Count; i++)
                 {
-                    if (listView1.SelectedItems[i].SubItems[0].Text == "")
+                    if (listViewDialog.SelectedItems[i].SubItems[0].Text == "")
                     {
                         continue;
                     }
                     else
                     {
-                        dsel.Add(listView1.SelectedItems[i].SubItems[0].Text);
+                        dsel.Add(listViewDialog.SelectedItems[i].SubItems[0].Text);
                     }
                 }
                 foreach (var item in dsel)
@@ -2569,24 +2520,24 @@ namespace bg3dialogreader
         {
             var h = "";
             List<string> dsel = new List<string>();
-            if (listView1.SelectedItems.Count == 1)
+            if (listViewDialog.SelectedItems.Count == 1)
             {
                 h = "";
-                h = listView1.SelectedItems[0].SubItems[1].Text;
+                h = listViewDialog.SelectedItems[0].SubItems[1].Text;
                 Clipboard.SetText(h);
             }
-            else if (listView1.SelectedItems.Count > 1)
+            else if (listViewDialog.SelectedItems.Count > 1)
             {
                 h = "";
-                for (int i = 0; i < listView1.SelectedItems.Count; i++)
+                for (int i = 0; i < listViewDialog.SelectedItems.Count; i++)
                 {
-                    if (listView1.SelectedItems[i].SubItems[1].Text == "")
+                    if (listViewDialog.SelectedItems[i].SubItems[1].Text == "")
                     {
                         continue;
                     }
                     else
                     {
-                        dsel.Add(listView1.SelectedItems[i].SubItems[1].Text);
+                        dsel.Add(listViewDialog.SelectedItems[i].SubItems[1].Text);
                     }
                 }
                 foreach (var item in dsel)
@@ -2595,42 +2546,887 @@ namespace bg3dialogreader
                 }
                 Clipboard.SetText(h);
             }
-
         }
 
         private void copyAudioFilenameToolStripMenuItem_Click(object sender, EventArgs e)
         {
             var h = "";
             List<string> dsel = new List<string>();
-            if (listView1.SelectedItems.Count == 1)
+            if (listViewDialog.SelectedItems.Count == 1)
             {
                 h = "";
-                h = listView1.SelectedItems[0].SubItems[2].Text;
-                Clipboard.SetText(h);
-            }
-            else if (listView1.SelectedItems.Count > 1)
-            {
-                h = "";
-                for (int i = 0; i < listView1.SelectedItems.Count; i++)
+                h = listViewDialog.SelectedItems[0].SubItems[2].Text;
+                if (h != "")
                 {
-                    if (listView1.SelectedItems[i].SubItems[2].Text == "")
+                    Clipboard.SetText(h);
+                }
+
+            }
+            else if (listViewDialog.SelectedItems.Count > 1)
+            {
+                h = "";
+                for (int i = 0; i < listViewDialog.SelectedItems.Count; i++)
+                {
+                    if (listViewDialog.SelectedItems[i].SubItems[2].Text == "")
                     {
                         continue;
                     }
                     else
                     {
-                        dsel.Add(listView1.SelectedItems[i].SubItems[2].Text);
+                        dsel.Add(listViewDialog.SelectedItems[i].SubItems[2].Text);
                     }
                 }
                 foreach (var item in dsel)
                 {
                     h += item + Environment.NewLine;
                 }
-                Clipboard.SetText(h);
+                if (h != "")
+                {
+                    Clipboard.SetText(h);
+                }
             }
         }
-    }
 
+        private void linkLabelNotFoundVGM_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
+        {
+            Process.Start(new ProcessStartInfo("https://github.com/vgmstream/vgmstream/releases") { UseShellExecute = true });
+        }
+
+        private void treeViewDialog_NodeMouseClick(object sender, TreeNodeMouseClickEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                treeViewDialog.SelectedNode = e.Node;
+                var focusedItem = treeViewDialog.SelectedNode;
+                if (focusedItem != null && focusedItem.Bounds.Contains(e.Location))
+                {
+                    contextMenuStripDialogTree.Enabled = true;
+                    contextMenuStripDialogTree.Show(Cursor.Position);
+                }
+            }
+        }
+
+        private void listViewDialog_MouseClick(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                var focusedItem = listViewDialog.FocusedItem;
+                if (focusedItem != null && focusedItem.Bounds.Contains(e.Location))
+                {
+                    contextMenuStripDialogList.Enabled = true;
+                    contextMenuStripDialogList.Show(Cursor.Position);
+                }
+            }
+        }
+
+        private void listViewDialog_DoubleClick(object sender, EventArgs e)
+        {
+            if (File.Exists("vgmstream-cli.exe"))
+            {
+                if (adialogs.Count == 0)
+                {
+                    loadaudiotable();
+                }
+                bplay();
+            }
+            else
+                MessageBox.Show("vgmstream-cli.exe not found");
+        }
+
+        private void treeViewDialog_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            connection.Open();
+            sqliteCommand.Connection = connection;
+            if (treeViewDialog.SelectedNode != null && treeViewDialog.SelectedNode.Tag != null)
+            {
+                labelCurentFilePath.Text = treeViewDialog.SelectedNode.FullPath;
+                listViewDialog.Items.Clear();
+
+                var tags = treeViewDialog.SelectedNode.Tag.ToString().Split(';');
+                string pathfile = bg3path + tags[3];
+
+                using (FileStream fileStream = new FileStream(pathfile, FileMode.Open, FileAccess.Read))
+                {
+                    using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
+                    {
+                        binaryReader1.BaseStream.Position = Convert.ToInt64(tags[0]);
+                        int compressedSize = Convert.ToInt32(tags[1]);
+                        byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
+
+                        int fileBufferSize = Convert.ToInt32(tags[2]);
+                        var uncompressedList = new byte[fileBufferSize];
+                        int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
+
+                        //richTextBox1.Text = Encoding.UTF8.GetString(uncompressedList);
+                        var dialog = JObject.Parse(Encoding.UTF8.GetString(uncompressedList));
+                        var values = dialog
+                            .SelectTokens("$..*")
+                            .Where(t => !t.HasValues)
+                            .ToDictionary(t => t.Path, t => t.ToString());
+
+
+
+                        int nodes = dialog["save"]["regions"]["dialog"]["nodes"][0]["node"].Count();
+                        foreach (var item in values)
+                        {
+                            if (item.Key.Contains("TagText.handle"))
+                            {
+                                ListViewItem lvi = listViewDialog.Items.Add(item.Value);
+                                sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
+                                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", item.Value));
+                                using (SqliteDataReader reader = sqliteCommand.ExecuteReader())
+                                {
+                                    if (reader.HasRows)
+                                    {
+                                        while (reader.Read())
+                                        {
+                                            lvi.SubItems.Add(reader.GetValue(1).ToString());
+                                            lvi.SubItems.Add(reader.GetValue(2).ToString());
+                                        }
+                                    }
+                                }
+                                sqliteCommand.Parameters.Clear();
+                            }
+                        }
+                    }
+                }
+            }
+            connection.Close();
+        }
+
+        private void treeViewDialog_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                if (treeViewDialog.HitTest(e.Location).Node == null)
+                {
+                    contextMenuStripDialogTree.Enabled = false;
+                }
+
+            }
+        }
+
+        private void listViewDialog_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                if (listViewDialog.HitTest(e.Location).Item == null)
+                {
+                    contextMenuStripDialogList.Enabled = false;
+                }
+
+            }
+        }
+        public class Rootobject
+        {
+            public Save save { get; set; }
+        }
+
+        public class Save
+        {
+            public Header header { get; set; }
+            public Regions regions { get; set; }
+        }
+
+        public class Header
+        {
+            public string version { get; set; }
+        }
+
+        public class Regions
+        {
+            public Dialog dialog { get; set; }
+            public Editordata1 editorData { get; set; }
+        }
+
+        public class Dialog
+        {
+            public Defaultaddressedspeaker[] DefaultAddressedSpeakers { get; set; }
+            public Timelineid TimelineId { get; set; }
+            public UUID UUID { get; set; }
+            public Category category { get; set; }
+            public Node[] nodes { get; set; }
+            public Speakerlist[] speakerlist { get; set; }
+        }
+
+        public class Timelineid
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class UUID
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Category
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Defaultaddressedspeaker
+        {
+            public Object[] Object { get; set; }
+        }
+
+        public class Object
+        {
+            public Mapkey MapKey { get; set; }
+            public Mapvalue MapValue { get; set; }
+        }
+
+        public class Mapkey
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Mapvalue
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Node
+        {
+            public Rootnode[] RootNodes { get; set; }
+            public Node1[] node { get; set; }
+        }
+
+        public class Rootnode
+        {
+            public Rootnodes RootNodes { get; set; }
+        }
+
+        public class Rootnodes
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+        public class PopLevel
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+        public class Node1
+        {
+            public Gamedata[] GameData { get; set; }
+            public Sourcenode SourceNode { get; set; }
+            public Tag[] Tags { get; set; }
+            public UUID1 UUID { get; set; }
+            public Checkflag[] checkflags { get; set; }
+            public Child[] children { get; set; }
+            public Constructor constructor { get; set; }
+            public Editordata[] editorData { get; set; }
+            public Setflag[] setflags { get; set; }
+            public Speaker speaker { get; set; }
+            public PopLevel PopLevel { get; set; }
+            public Showonce ShowOnce { get; set; }
+            public Taggedtext[] TaggedTexts { get; set; }
+            public Validatedflag[] ValidatedFlags { get; set; }
+            public Jumptarget jumptarget { get; set; }
+            public Jumptargetpoint jumptargetpoint { get; set; }
+            public Endnode endnode { get; set; }
+            public Approvalratingid ApprovalRatingID { get; set; }
+            public Success Success { get; set; }
+            public Groupid GroupID { get; set; }
+            public Groupindex GroupIndex { get; set; }
+            public Root Root { get; set; }
+            public Ability Ability { get; set; }
+            public Advantage Advantage { get; set; }
+            public Difficultyclassid DifficultyClassID { get; set; }
+            public Excludecompanionsoptionalbonuses ExcludeCompanionsOptionalBonuses { get; set; }
+            public Excludespeakeroptionalbonuses ExcludeSpeakerOptionalBonuses { get; set; }
+            public Rolltargetspeaker RollTargetSpeaker { get; set; }
+            public Rolltype RollType { get; set; }
+            public Skill Skill { get; set; }
+            public Transitionmode transitionmode { get; set; }
+            public Optional optional { get; set; }
+        }
+
+        public class Sourcenode
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class UUID1
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Constructor
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Speaker
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Showonce
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Jumptarget
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Jumptargetpoint
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Endnode
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Approvalratingid
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Success
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Groupid
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Groupindex
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Root
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Ability
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Advantage
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Difficultyclassid
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Excludecompanionsoptionalbonuses
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Excludespeakeroptionalbonuses
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Rolltargetspeaker
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Rolltype
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Skill
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Transitionmode
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Optional
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Gamedata
+        {
+            public Aipersonality[] AiPersonalities { get; set; }
+            public Musicinstrumentsound[] MusicInstrumentSounds { get; set; }
+            public Originsound[] OriginSound { get; set; }
+        }
+
+        public class Aipersonality
+        {
+            public Aipersonality1[] AiPersonality { get; set; }
+        }
+
+        public class Aipersonality1
+        {
+            public Aipersonality2 AiPersonality { get; set; }
+        }
+
+        public class Aipersonality2
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Musicinstrumentsound
+        {
+        }
+
+        public class Originsound
+        {
+        }
+
+        public class Tag
+        {
+            [JsonProperty("Tag")]
+            public Tag1[] Tagg { get; set; }
+        }
+
+        public class Tag1
+        {
+            public Tag2 Tag { get; set; }
+        }
+
+        public class Tag2
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Checkflag
+        {
+            public Flaggroup[] flaggroup { get; set; }
+        }
+
+        public class Flaggroup
+        {
+            public Flag[] flag { get; set; }
+            public Type type { get; set; }
+        }
+
+        public class Type
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Flag
+        {
+            public UUID2 UUID { get; set; }
+            public Value value { get; set; }
+            public Paramval paramval { get; set; }
+        }
+
+        public class UUID2
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Value
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Paramval
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Child
+        {
+            public Child1[] child { get; set; }
+        }
+
+        public class Child1
+        {
+            public UUID3 UUID { get; set; }
+        }
+
+        public class UUID3
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Editordata
+        {
+            public Datum[] data { get; set; }
+        }
+
+        public class Datum
+        {
+            public Key key { get; set; }
+            public Val val { get; set; }
+        }
+
+        public class Key
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Val
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Setflag
+        {
+            public Flaggroup1[] flaggroup { get; set; }
+        }
+
+        public class Flaggroup1
+        {
+            public Flag1[] flag { get; set; }
+            public Type1 type { get; set; }
+        }
+
+        public class Type1
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Flag1
+        {
+            public UUID4 UUID { get; set; }
+            public Paramval1 paramval { get; set; }
+            public Value1 value { get; set; }
+        }
+
+        public class UUID4
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Paramval1
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Value1
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Taggedtext
+        {
+            public Taggedtext1[] TaggedText { get; set; }
+        }
+
+        public class Taggedtext1
+        {
+            public Hastagrule HasTagRule { get; set; }
+            public Rulegroup[] RuleGroup { get; set; }
+            public Tagtext[] TagTexts { get; set; }
+        }
+
+        public class Hastagrule
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Rulegroup
+        {
+            public Rule[] Rules { get; set; }
+            public Tagcombineop TagCombineOp { get; set; }
+        }
+
+        public class Tagcombineop
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Rule
+        {
+            [JsonProperty("Rule")]
+            public Rule1[] Rulee { get; set; }
+        }
+
+        public class Rule1
+        {
+            public Haschildrules HasChildRules { get; set; }
+            public Tagcombineop1 TagCombineOp { get; set; }
+            public Tag3[] Tags { get; set; }
+            public Speaker1 speaker { get; set; }
+        }
+
+        public class Haschildrules
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Tagcombineop1
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Speaker1
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Tag3
+        {
+            public Tag4[] Tag { get; set; }
+        }
+
+        public class Tag4
+        {
+            public Object1 Object { get; set; }
+        }
+
+        public class Object1
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Tagtext
+        {
+            public Tagtext1[] TagText { get; set; }
+        }
+
+        public class Tagtext1
+        {
+            public Lineid LineId { get; set; }
+            public Tagtext2 TagText { get; set; }
+            public Stub stub { get; set; }
+        }
+
+        public class Lineid
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Tagtext2
+        {
+            public string handle { get; set; }
+            public string type { get; set; }
+            public int version { get; set; }
+        }
+
+        public class Stub
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Validatedflag
+        {
+            public Validatedhasvalue ValidatedHasValue { get; set; }
+        }
+
+        public class Validatedhasvalue
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Speakerlist
+        {
+            public Speaker2[] speaker { get; set; }
+        }
+
+        public class Speaker2
+        {
+            public Speakermappingid SpeakerMappingId { get; set; }
+            public Index index { get; set; }
+            public List list { get; set; }
+            public Ispeanutspeaker IsPeanutSpeaker { get; set; }
+        }
+
+        public class Speakermappingid
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Index
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class List
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Ispeanutspeaker
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Editordata1
+        {
+            public Howtotrigger HowToTrigger { get; set; }
+            public Defaultattitude[] defaultAttitudes { get; set; }
+            public Defaultemotion[] defaultEmotions { get; set; }
+            public Isimportantforstaging[] isImportantForStagings { get; set; }
+            public Ispeanut[] isPeanuts { get; set; }
+            public Needlayout needLayout { get; set; }
+            public Nextnodeid nextNodeId { get; set; }
+            public Speakerslotdescription[] speakerSlotDescription { get; set; }
+            public Synopsis synopsis { get; set; }
+        }
+
+        public class Howtotrigger
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Needlayout
+        {
+            public string type { get; set; }
+            public bool value { get; set; }
+        }
+
+        public class Nextnodeid
+        {
+            public string type { get; set; }
+            public int value { get; set; }
+        }
+
+        public class Synopsis
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Defaultattitude
+        {
+            public Datum1[] data { get; set; }
+        }
+
+        public class Datum1
+        {
+            public Key1 key { get; set; }
+            public Val1 val { get; set; }
+        }
+
+        public class Key1
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Val1
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Defaultemotion
+        {
+            public Datum2[] data { get; set; }
+        }
+
+        public class Datum2
+        {
+            public Key2 key { get; set; }
+            public Val2 val { get; set; }
+        }
+
+        public class Key2
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Val2
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Isimportantforstaging
+        {
+        }
+
+        public class Ispeanut
+        {
+            public Datum3[] data { get; set; }
+        }
+
+        public class Datum3
+        {
+            public Key3 key { get; set; }
+            public Val3 val { get; set; }
+        }
+
+        public class Key3
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Val3
+        {
+            public string type { get; set; }
+            public string value { get; set; }
+        }
+
+        public class Speakerslotdescription
+        {
+        }
+    }
     public static class StringExtensions
     {
         public static string Repeat(this string s, int n)
