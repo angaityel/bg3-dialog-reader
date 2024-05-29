@@ -1,0 +1,125 @@
+.dialog {
+  white-space: nowrap;
+  overflow-x: scroll;
+  width: 10000px;
+}
+
+.dialog .collapsibleList li {
+	list-style-image: url(square.png);
+	cursor: auto;
+}
+
+.dialog .dialogList li.collapsibleListClosed {
+	list-style-image: url(plus.png);
+	cursor: pointer;
+}
+
+.dialog .dialogList li.collapsibleListOpen {
+	list-style-image: url(minus.png);
+	cursor: pointer;
+}
+
+span.ruletag {
+	cursor: pointer;
+	color: coral;
+	margin-left: 5px;
+}
+
+span.tags {
+	cursor: pointer;
+	color: crimson;
+	margin-left: 5px;
+}
+
+span.checkflag {
+	cursor: pointer;
+	color: royalblue;
+	margin-left: 5px;
+}
+
+span.setflag {
+	cursor: pointer;
+	color: darkgoldenrod;
+	margin-left: 5px;
+}
+
+span.rolls {
+	cursor: pointer;
+	color: darkviolet;
+	margin-left: 5px;
+}
+
+span.approval {
+	cursor: pointer;
+	color: darkcyan;
+	margin-left: 5px;
+}
+
+div.npc {
+	cursor: pointer;
+	color: green;
+	margin-left: 5px;
+}
+
+div.npcgroup {
+	cursor: pointer;
+	color: lightslategray;
+	margin-left: 5px;
+}
+
+span.npcplayer {
+	cursor: pointer;
+	color: deeppink;
+	margin-left: 5px;
+}
+
+span.context {
+	cursor: pointer;
+	color: lightskyblue;
+}
+
+span.synopsis {
+	cursor: pointer;
+}
+
+span.shrules {
+	cursor: pointer;
+	color: coral;
+	margin-left: 5px;
+}
+
+span.shcheckflag {
+	cursor: pointer;
+	color: royalblue;
+	margin-left: 5px;
+}
+
+span.shsetflag {
+	cursor: pointer;
+	color: darkgoldenrod;
+	margin-left: 5px;
+}
+
+span.shroll {
+	cursor: pointer;
+	color: darkviolet;
+	margin-left: 5px;
+}
+
+span.shapprov {
+	cursor: pointer;
+	color: darkcyan;
+	margin-left: 5px;
+}
+
+span.shtags {
+	cursor: pointer;
+	color: crimson;
+	margin-left: 5px;
+}
+
+span.shcontext {
+	cursor: pointer;
+	color: lightskyblue;
+	margin-left: 5px;
+}
