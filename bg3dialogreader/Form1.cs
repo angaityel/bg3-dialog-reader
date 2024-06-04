@@ -15,6 +15,8 @@ using System.Text;
 using System.Windows.Forms;
 using System.Xml;
 using static bg3dialogreader.Form1;
+using static bg3dialogreader.Json;
+using static System.Net.Mime.MediaTypeNames;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.Button;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.ToolBar;
@@ -63,95 +65,36 @@ namespace bg3dialogreader
 
         private void parsetranslation()
         {
-            string engpak = "";
-            string lang = "";
-            this.Invoke(new MethodInvoker(delegate () { lang = comboBoxLanguageSelect.Text; }));
+            string locPak = "";
+            string locLang = "";
+            this.Invoke(new MethodInvoker(delegate () { locLang = comboBoxLanguageSelect.Text; }));
 
-            if (lang == "English")
-                engpak = bg3path + "\\Localization\\English.pak";
+            if (locLang == "English")
+                locPak = bg3path + "\\Localization\\English.pak";
             else
-                engpak = bg3path + "\\Localization\\" + lang + "\\" + lang + ".pak"; //"\\Localization\\English.pak";
-            using (FileStream fileStream = new(engpak, FileMode.Open, FileAccess.Read))
+                locPak = bg3path + "\\Localization\\" + locLang + "\\" + locLang + ".pak"; //"\\Localization\\English.pak";
+
+            var pakReader = new PackageReader();
+            using var package = pakReader.Read(locPak);
+            List<PackagedFileInfo> files = package.Files;
+            foreach (var file in files)
             {
-                using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
+                if (file.Name.Contains("/" + locLang + "/" + locLang.ToLower() + ".loca") || file.Name.Contains("/" + locLang + "/" + locLang.ToLower() + ".xml"))
                 {
-                    long testoffset = 0;
-                    int testsize = 0;
-                    int testzsize = 0;
+                    using var fileStream = file.CreateContentReader();
+                    var fileExt = LocaUtils.ExtensionToFileFormat(file.Name);
+                    var locReader = LocaUtils.Load(fileStream, fileExt);
 
-                    binaryReader1.ReadBytes(0x08);
-                    long offset = binaryReader1.ReadInt64();
-                    binaryReader1.BaseStream.Position = offset;
-                    int numFiles = binaryReader1.ReadInt32();
-                    int compressedSize = binaryReader1.ReadInt32();
-                    byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
-
-                    int fileBufferSize = numFiles * 272;
-                    var uncompressedList = new byte[fileBufferSize];
-                    int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
-                    //File.WriteAllBytes("asd.asd", uncompressedList);
-                    using (MemoryStream mem = new MemoryStream(uncompressedList))
+                    sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@handle,@text,null)";
+                    foreach (var entry in locReader.Entries)
                     {
-                        using (BinaryReader brmem = new BinaryReader(mem))
-                        {
-                            for (int i = 0; i < numFiles; i++)
-                            {
-                                var data = brmem.ReadBytes(0x100);
-
-                                var offs = brmem.ReadBytes(6);
-                                Array.Resize(ref offs, 8);
-                                var dialogoffset = BitConverter.ToInt64(offs, 0);
-                                brmem.ReadBytes(2);
-                                var zsize = brmem.ReadUInt32();
-                                var size = brmem.ReadUInt32();
-
-                                string x = Encoding.UTF8.GetString(data.TakeWhile(a => a != 0).ToArray());
-
-                                testoffset = dialogoffset;
-                                testsize = (int)size;
-                                testzsize = (int)zsize;
-
-                                if (x.Contains("/" + lang + "/" + lang.ToLower() + ".loca"))
-                                {
-                                    binaryReader1.BaseStream.Position = testoffset;
-                                    byte[] testcompress = binaryReader1.ReadBytes(testzsize);
-                                    //var uncompressedtest = new byte[size];
-                                    var testuncompressedList = new byte[testsize];
-                                    int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, testsize, true);
-
-                                    using (MemoryStream fff = new MemoryStream(testuncompressedList))
-                                    {
-                                        using (var reader = new LocaReader(fff))
-                                        {
-                                            //reader.Read();
-                                            var asd = new MemoryStream();
-                                            var resource = reader.Read();
-
-
-                                            sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@handle,@text,null)";
-                                            foreach (var item in resource.Entries)
-                                            {
-
-                                                sqliteCommand.Parameters.Add(new SqliteParameter("@handle", item.Key));
-                                                sqliteCommand.Parameters.Add(new SqliteParameter("@text", item.Text));
-                                                sqliteCommand.ExecuteNonQuery();
-                                                sqliteCommand.Parameters.Clear();
-
-                                            }
-
-
-
-                                        }
-                                    }
-
-
-                                }
-                            }
-                        }
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@handle", entry.Key));
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", entry.Text));
+                        sqliteCommand.ExecuteNonQuery();
+                        sqliteCommand.Parameters.Clear();
                     }
                 }
             }
-
         }
 
         private static void rConvert(Resource resource, MemoryStream outputPath, ResourceFormat format, ResourceConversionParameters conversionParams)
@@ -162,44 +105,26 @@ namespace bg3dialogreader
             writer.Write(resource);
         }
 
-        private void dialogs(string filename, BinaryReader br, long offset, int size, int zsize)
+        private void dialogs(PackagedFileInfo file)
         {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-            {
-                testuncompressedList = testcompress;
-            }
+            using var fileStream = file.CreateContentReader();
+            using var memoryStream = new MemoryStream();
+            fileStream.CopyTo(memoryStream);
 
-            var asd = filename.Split(new string[] { "/Story/Dialogs/" }, StringSplitOptions.None);
-
-            Directory.CreateDirectory(Path.GetDirectoryName(AppDomain.CurrentDomain.BaseDirectory + "\\Dialogs_lsj\\" + asd[1]));
-            File.WriteAllBytes(AppDomain.CurrentDomain.BaseDirectory + "\\Dialogs_lsj\\" + asd[1], testuncompressedList);
-        }
-        private void dialogs2(string filename, BinaryReader br, long offset, int size, int zsize)
-        {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-            {
-                testuncompressedList = testcompress;
-            }
-
-
-            convertd2(testuncompressedList, filename);
+            convertd2(memoryStream.ToArray(), file.Name);
 
             dfc++;
             this.Invoke(new MethodInvoker(delegate () { labelExportedFilesCounter.Text = dfc.ToString(); }));
 
+            if (checkBoxExportLSJ.Checked)
+            {
+                var path = file.Name.Split(new string[] { "/Story/Dialogs/" }, StringSplitOptions.None);
 
+                Directory.CreateDirectory(Path.GetDirectoryName(AppDomain.CurrentDomain.BaseDirectory + "\\Dialogs_lsj\\" + path[1]));
+                File.WriteAllBytes(AppDomain.CurrentDomain.BaseDirectory + "\\Dialogs_lsj\\" + path[1], memoryStream.ToArray());
+            }
         }
-
+        
         private void finaliz()
         {
             foreach (var entry in testdictnotfound)
@@ -243,192 +168,159 @@ namespace bg3dialogreader
             }
         }
 
-        private void namesmerged(BinaryReader br, long offset, int size, int zsize)
+        private void namesmerged(PackagedFileInfo file)
         {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-                testuncompressedList = testcompress;
-            using (MemoryStream test = new MemoryStream(testuncompressedList))
+
+            using var fileStream = file.CreateContentReader();
+            using var asd = new MemoryStream();
+            if (file.Name.Contains(".lsf"))
             {
-                using (var reader = new LSFReader(test))
-                {
-                    //reader.Read();
-                    var asd = new MemoryStream();
-                    _resource = reader.Read();
-                    ResourceFormat format = ResourceFormat.LSX;
-                    var conversionParams = ResourceConversionParameters.FromGameVersion(Game.BaldursGate3);
-                    rConvert(_resource, asd, format, conversionParams);
-                    //string result = Encoding.UTF8.GetString(asd.ToArray());//.Replace("\uFEFF", "");
+                using var reader = new LSFReader(fileStream);
 
-
-                    asd.Position = 0;
-                    XmlReader xmreader = XmlReader.Create(asd);
-                    XmlDocument xDoc = new XmlDocument();
-                    xDoc.Load(xmreader);
-
-                    XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node");
-
-                    if (node.LastChild != null)
-                    {
-                        XmlNode node1 = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children");
-                        foreach (XmlNode item in node1.ChildNodes)
-                        {
-                            string MapKey = "";
-                            string DisplayName = "";
-                            string TemplateName = "";
-                            string ParentTemplateId = "";
-                            string dbname = "";
-                            foreach (XmlNode item1 in item.ChildNodes)
-                            {
-                                if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "MapKey")
-                                    MapKey = item1.Attributes.GetNamedItem("value").Value;
-                                if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "DisplayName")
-                                    DisplayName = item1.Attributes.GetNamedItem("handle").Value;
-                                if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "TemplateName")
-                                    TemplateName = item1.Attributes.GetNamedItem("value").Value;
-                                if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "ParentTemplateId")
-                                    ParentTemplateId = item1.Attributes.GetNamedItem("value").Value;
-                            }
-
-                            if (DisplayName.StartsWith('h'))
-                            {
-                                sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", DisplayName));
-
-                                using (SqliteDataReader readers = sqliteCommand.ExecuteReader())
-                                {
-                                    if (readers.HasRows)
-                                    {
-                                        while (readers.Read())
-                                        {
-                                            dbname = readers.GetValue(1).ToString();
-                                            testdictfound[MapKey] = dbname;
-                                        }
-                                    }
-                                }
-                                sqliteCommand.Parameters.Clear();
-                            }
-                            else if (DisplayName == "")
-                            {
-                                if (TemplateName != "")
-                                    testdictnotfound[MapKey] = TemplateName;
-                                else
-                                    testdictnotfound[MapKey] = ParentTemplateId;
-                            }
-                        }
-
-                    }
-
-                }
+                _resource = reader.Read();
+                ResourceFormat format = ResourceFormat.LSX;
+                var conversionParams = ResourceConversionParameters.FromGameVersion(Game.BaldursGate3);
+                rConvert(_resource, asd, format, conversionParams);
+                //string result = Encoding.UTF8.GetString(asd.ToArray());//.Replace("\uFEFF", "");
             }
-        }
-        private void namesorigins(BinaryReader br, long offset, int size, int zsize)
-        {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-                testuncompressedList = testcompress;
-            using (MemoryStream test = new MemoryStream(testuncompressedList))
+            else if (file.Name.Contains(".lsx"))
             {
+                fileStream.CopyTo(asd);
+            }
 
-                XmlReader xmreader = XmlReader.Create(test);
-                XmlDocument xDoc = new XmlDocument();
-                xDoc.Load(xmreader);
+            asd.Position = 0;
+            XmlReader xmreader = XmlReader.Create(asd);
+            XmlDocument xDoc = new XmlDocument();
+            xDoc.Load(xmreader);
 
-                XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children");
+            XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node");
 
-                foreach (XmlNode item in node.ChildNodes)
+            if (node.LastChild != null)
+            {
+                XmlNode node1 = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children");
+                foreach (XmlNode item in node1.ChildNodes)
                 {
-                    string uuid = "";
-                    string GlobalTemplate = "";
+                    string MapKey = "";
+                    string DisplayName = "";
+                    string TemplateName = "";
+                    string ParentTemplateId = "";
+                    string dbname = "";
                     foreach (XmlNode item1 in item.ChildNodes)
                     {
-                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "UUID")
-                            uuid = item1.Attributes.GetNamedItem("value").Value;
-                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "GlobalTemplate")
-                            GlobalTemplate = item1.Attributes.GetNamedItem("value").Value;
+                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "MapKey")
+                            MapKey = item1.Attributes.GetNamedItem("value").Value;
+                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "DisplayName")
+                            DisplayName = item1.Attributes.GetNamedItem("handle").Value;
+                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "TemplateName")
+                            TemplateName = item1.Attributes.GetNamedItem("value").Value;
+                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "ParentTemplateId")
+                            ParentTemplateId = item1.Attributes.GetNamedItem("value").Value;
                     }
-                    testdictnotfound[uuid] = GlobalTemplate;
-                }
-            }
-        }
-        private void namesspeakergroup(BinaryReader br, long offset, int size, int zsize)
-        {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-                testuncompressedList = testcompress;
-            using (MemoryStream test = new MemoryStream(testuncompressedList))
-            {
-                using (var reader = new LSFReader(test))
-                {
-                    //reader.Read();
-                    var asd = new MemoryStream();
-                    _resource = reader.Read();
-                    ResourceFormat format = ResourceFormat.LSX;
-                    var conversionParams = ResourceConversionParameters.FromGameVersion(Game.BaldursGate3);
-                    rConvert(_resource, asd, format, conversionParams);
-                    //string result = Encoding.UTF8.GetString(asd.ToArray());//.Replace("\uFEFF", "");
 
-
-                    asd.Position = 0;
-                    XmlReader xmreader = XmlReader.Create(asd);
-                    XmlDocument xDoc = new XmlDocument();
-                    xDoc.Load(xmreader);
-
-
-                    XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children");
-
-                    foreach (XmlNode item in node.ChildNodes)
+                    if (DisplayName.StartsWith('h'))
                     {
-                        string uuid = "";
-                        string stringname = "";
-                        string desc = "";
-                        foreach (XmlNode item1 in item.ChildNodes)
+                        sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
+                        sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", DisplayName));
+
+                        using (SqliteDataReader readers = sqliteCommand.ExecuteReader())
                         {
-                            if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "UUID")
-                                uuid = item1.Attributes.GetNamedItem("value").Value;
-                            if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "Name")
-                                stringname = item1.Attributes.GetNamedItem("value").Value;
-                            if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "Description")
-                                desc = item1.Attributes.GetNamedItem("value").Value;
+                            if (readers.HasRows)
+                            {
+                                while (readers.Read())
+                                {
+                                    dbname = readers.GetValue(1).ToString();
+                                    testdictfound[MapKey] = dbname;
+                                }
+                            }
                         }
-                        if (stringname == "GROUP_Players")
-                            continue;
-
-
-                        sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
-
-                        sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
-                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", stringname));
-                        sqliteCommand.Parameters.Add(new SqliteParameter("@desc", desc));
-
-                        sqliteCommand.ExecuteNonQuery();
                         sqliteCommand.Parameters.Clear();
                     }
-
+                    else if (DisplayName == "")
+                    {
+                        if (TemplateName != "")
+                            testdictnotfound[MapKey] = TemplateName;
+                        else
+                            testdictnotfound[MapKey] = ParentTemplateId;
+                    }
                 }
             }
         }
-        private void Reactions(string filename, BinaryReader br, long offset, int size, int zsize)
+        private void namesorigins(PackagedFileInfo file)
         {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-                testuncompressedList = testcompress;
+            using var fileStream = file.CreateContentReader();
+            using XmlReader xmreader = XmlReader.Create(fileStream);
+            XmlDocument xDoc = new XmlDocument();
+            xDoc.Load(xmreader);
+
+            XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children");
+
+            foreach (XmlNode item in node.ChildNodes)
+            {
+                string uuid = "";
+                string GlobalTemplate = "";
+                foreach (XmlNode item1 in item.ChildNodes)
+                {
+                    if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "UUID")
+                        uuid = item1.Attributes.GetNamedItem("value").Value;
+                    if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "GlobalTemplate")
+                        GlobalTemplate = item1.Attributes.GetNamedItem("value").Value;
+                }
+                testdictnotfound[uuid] = GlobalTemplate;
+            }
+        }
+        private void namesspeakergroup(PackagedFileInfo file)
+        {
+            using var fileStream = file.CreateContentReader();
+            using var reader = new LSFReader(fileStream);
+
+            var asd = new MemoryStream();
+            _resource = reader.Read();
+            ResourceFormat format = ResourceFormat.LSX;
+            var conversionParams = ResourceConversionParameters.FromGameVersion(Game.BaldursGate3);
+            rConvert(_resource, asd, format, conversionParams);
+            //string result = Encoding.UTF8.GetString(asd.ToArray());//.Replace("\uFEFF", "");
+
+
+            asd.Position = 0;
+            XmlReader xmreader = XmlReader.Create(asd);
+            XmlDocument xDoc = new XmlDocument();
+            xDoc.Load(xmreader);
+
+
+            XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children");
+
+            foreach (XmlNode item in node.ChildNodes)
+            {
+                string uuid = "";
+                string stringname = "";
+                string desc = "";
+                foreach (XmlNode item1 in item.ChildNodes)
+                {
+                    if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "UUID")
+                        uuid = item1.Attributes.GetNamedItem("value").Value;
+                    if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "Name")
+                        stringname = item1.Attributes.GetNamedItem("value").Value;
+                    if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "Description")
+                        desc = item1.Attributes.GetNamedItem("value").Value;
+                }
+                if (stringname == "GROUP_Players")
+                    continue;
+
+
+                sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
+
+                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
+                sqliteCommand.Parameters.Add(new SqliteParameter("@text", stringname));
+                sqliteCommand.Parameters.Add(new SqliteParameter("@desc", desc));
+
+                sqliteCommand.ExecuteNonQuery();
+                sqliteCommand.Parameters.Clear();
+            }
+        }
+        private void Reactions(PackagedFileInfo file)
+        {
+            using var fileStream = file.CreateContentReader();
+
             var npc = new Dictionary<string, string>()
             {
                 {"2bb39cf2-4649-4238-8d0c-44f62b5a3dfd", "Shadowheart"},
@@ -446,464 +338,288 @@ namespace bg3dialogreader
                 {"a4b56492-d5ac-4a84-8e45-5437cd9da7f3", "Custom"}
             };
 
-            using (MemoryStream test = new MemoryStream(testuncompressedList))
+            using XmlReader xmreader = XmlReader.Create(fileStream);
+            XmlDocument xDoc = new XmlDocument();
+            xDoc.Load(xmreader);
+
+
+            string react = "[";
+
+            XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children/node");
+
+            if (node.LastChild.Name == "children")
             {
+                XmlNode node1 = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children/node/children/node/children");
 
-                XmlReader xmreader = XmlReader.Create(test);
-                XmlDocument xDoc = new XmlDocument();
-                xDoc.Load(xmreader);
-
-
-                string react = "[";
-
-                XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children/node");
-
-                if (node.LastChild.Name == "children")
-                {
-                    XmlNode node1 = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children/node/children/node/children");
-
-                    foreach (XmlNode item in node1.ChildNodes)
-                    {
-                        string uuid = "";
-                        string stringname = "";
-                        foreach (XmlNode item1 in item.ChildNodes)
-                        {
-                            if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "id")
-                                uuid = item1.Attributes.GetNamedItem("value").Value;
-                            if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "value")
-                                stringname = item1.Attributes.GetNamedItem("value").Value;
-
-                        }
-
-                        if (stringname != "0")
-                            react += "'" + npc[uuid] + " " + stringname + "', ";
-                    }
-                    sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc) ON CONFLICT(uuid) DO UPDATE SET uuid=excluded.uuid";
-                    sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", Path.GetFileNameWithoutExtension(filename)));
-
-                    if (react == "[")
-                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", DBNull.Value));
-                    else
-                    {
-                        react = react.Remove(react.Length - 2);
-                        react += "]";
-                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", react));
-                    }
-
-                    sqliteCommand.Parameters.Add(new SqliteParameter("@desc", DBNull.Value));
-
-                    sqliteCommand.ExecuteNonQuery();
-                    sqliteCommand.Parameters.Clear();
-
-                }
-
-            }
-        }
-        private void difficulties(BinaryReader br, long offset, int size, int zsize)
-        {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-                testuncompressedList = testcompress;
-            using (MemoryStream test = new MemoryStream(testuncompressedList))
-            {
-
-                XmlReader xmreader = XmlReader.Create(test);
-                XmlDocument xDoc = new XmlDocument();
-                xDoc.Load(xmreader);
-
-                XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children");
-
-                foreach (XmlNode item in node.ChildNodes)
+                foreach (XmlNode item in node1.ChildNodes)
                 {
                     string uuid = "";
                     string stringname = "";
-                    string diff = "";
                     foreach (XmlNode item1 in item.ChildNodes)
                     {
-                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "UUID")
+                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "id")
                             uuid = item1.Attributes.GetNamedItem("value").Value;
-                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "Name")
+                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "value")
                             stringname = item1.Attributes.GetNamedItem("value").Value;
-                        if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "Difficulties")
-                            diff = item1.Attributes.GetNamedItem("value").Value;
+
                     }
 
-                    sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
-                    sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
-                    sqliteCommand.Parameters.Add(new SqliteParameter("@text", diff));
-                    sqliteCommand.Parameters.Add(new SqliteParameter("@desc", stringname));
-
-                    sqliteCommand.ExecuteNonQuery();
-                    sqliteCommand.Parameters.Clear();
-
+                    if (stringname != "0")
+                        react += "'" + npc[uuid] + " " + stringname + "', ";
                 }
+                sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc) ON CONFLICT(uuid) DO UPDATE SET uuid=excluded.uuid";
+                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", Path.GetFileNameWithoutExtension(file.Name)));
+
+                if (react == "[")
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@text", DBNull.Value));
+                else
+                {
+                    react = react.Remove(react.Length - 2);
+                    react += "]";
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@text", react));
+                }
+
+                sqliteCommand.Parameters.Add(new SqliteParameter("@desc", DBNull.Value));
+                sqliteCommand.ExecuteNonQuery();
+                sqliteCommand.Parameters.Clear();
+            }
+        }
+        private void difficulties(PackagedFileInfo file)
+        {
+            using var fileStream = file.CreateContentReader();
+            using XmlReader xmreader = XmlReader.Create(fileStream);
+            XmlDocument xDoc = new XmlDocument();
+            xDoc.Load(xmreader);
+
+            XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children");
+
+            foreach (XmlNode item in node.ChildNodes)
+            {
+                string uuid = "";
+                string stringname = "";
+                string diff = "";
+                foreach (XmlNode item1 in item.ChildNodes)
+                {
+                    if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "UUID")
+                        uuid = item1.Attributes.GetNamedItem("value").Value;
+                    if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "Name")
+                        stringname = item1.Attributes.GetNamedItem("value").Value;
+                    if (item1.Name == "attribute" && item1.Attributes.GetNamedItem("id").Value == "Difficulties")
+                        diff = item1.Attributes.GetNamedItem("value").Value;
+                }
+
+                sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
+                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
+                sqliteCommand.Parameters.Add(new SqliteParameter("@text", diff));
+                sqliteCommand.Parameters.Add(new SqliteParameter("@desc", stringname));
+
+                sqliteCommand.ExecuteNonQuery();
+                sqliteCommand.Parameters.Clear();
 
             }
         }
-        private void questflags(BinaryReader br, long offset, int size, int zsize)
+        private void questflags(PackagedFileInfo file)
         {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-                testuncompressedList = testcompress;
-            using (MemoryStream test = new MemoryStream(testuncompressedList))
+            using var fileStream = file.CreateContentReader();
+            using XmlReader xmreader = XmlReader.Create(fileStream);
+            XmlDocument xDoc = new XmlDocument();
+            xDoc.Load(xmreader);
+
+            XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children");
+
+            foreach (XmlNode item in node.ChildNodes)
             {
-
-                XmlReader xmreader = XmlReader.Create(test);
-                XmlDocument xDoc = new XmlDocument();
-                xDoc.Load(xmreader);
-
-                XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children");
-
-                foreach (XmlNode item in node.ChildNodes)
+                if (item.Attributes.GetNamedItem("id").Value == "Quest")
                 {
-                    if (item.Attributes.GetNamedItem("id").Value == "Quest")
+                    foreach (XmlNode item1 in item.LastChild)
                     {
-                        foreach (XmlNode item1 in item.LastChild)
+                        if (item1.Attributes.GetNamedItem("id").Value == "QuestStep")
                         {
-                            if (item1.Attributes.GetNamedItem("id").Value == "QuestStep")
+                            string uuid = "";
+                            string stringname = "";
+                            string desc = "";
+                            string desc2 = "";
+                            foreach (XmlNode item2 in item1.ChildNodes)
                             {
-                                string uuid = "";
-                                string stringname = "";
-                                string desc = "";
-                                string desc2 = "";
-                                foreach (XmlNode item2 in item1.ChildNodes)
-                                {
-                                    if (item2.Name == "attribute" && item2.Attributes.GetNamedItem("id").Value == "DialogFlagGUID")
-                                        uuid = item2.Attributes.GetNamedItem("value").Value;
-                                    if (item2.Name == "attribute" && item2.Attributes.GetNamedItem("id").Value == "ID")
-                                        stringname = item2.Attributes.GetNamedItem("value").Value;
-                                    if (item2.Name == "attribute" && item2.Attributes.GetNamedItem("id").Value == "Description")
-                                        desc = item2.Attributes.GetNamedItem("handle").Value;
-                                }
-
-
-                                sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", desc));
-
-                                using (SqliteDataReader reader = sqliteCommand.ExecuteReader())
-                                {
-                                    if (reader.HasRows)
-                                    {
-                                        while (reader.Read())
-                                        {
-                                            desc2 = reader.GetValue(1).ToString();
-                                        }
-                                    }
-
-
-
-                                }
-                                sqliteCommand.Parameters.Clear();
-
-
-                                sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
-                                sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
-                                sqliteCommand.Parameters.Add(new SqliteParameter("@text", stringname));
-                                sqliteCommand.Parameters.Add(new SqliteParameter("@desc", desc2));
-                                sqliteCommand.ExecuteNonQuery();
-                                sqliteCommand.Parameters.Clear();
-                            }
-                        }
-                    }
-
-                }
-
-            }
-        }
-        private void tagsflags(string filename, BinaryReader br, long offset, int size, int zsize)
-        {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-                testuncompressedList = testcompress;
-            using (MemoryStream test = new MemoryStream(testuncompressedList))
-            {
-                using (var reader = new LSFReader(test))
-                {
-                    //reader.Read();
-                    var asd = new MemoryStream();
-                    _resource = reader.Read();
-                    ResourceFormat format = ResourceFormat.LSX;
-                    var conversionParams = ResourceConversionParameters.FromGameVersion(Game.BaldursGate3);
-                    rConvert(_resource, asd, format, conversionParams);
-                    //string result = Encoding.UTF8.GetString(asd.ToArray());//.Replace("\uFEFF", "");
-
-
-                    asd.Position = 0;
-                    XmlReader xmreader = XmlReader.Create(asd);
-                    XmlDocument xDoc = new XmlDocument();
-                    xDoc.Load(xmreader);
-
-
-                    string stringname = "";
-                    string desc = "";
-
-                    XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node");
-
-                    //node.ChildNodes[0].Attributes.GetNamedItem("value");
-
-
-                    foreach (XmlNode item in node.ChildNodes)
-                    {
-
-                        if (item.Name == "attribute" && item.Attributes.GetNamedItem("id").Value == "Name")
-                            stringname = item.Attributes.GetNamedItem("value").Value;
-                        if (item.Name == "attribute" && item.Attributes.GetNamedItem("id").Value == "Description")
-                            desc = item.Attributes.GetNamedItem("value").Value;
-                    }
-
-
-
-                    sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@handle,@text,@desc) ON CONFLICT(uuid) DO UPDATE SET uuid=excluded.uuid";
-                    sqliteCommand.Parameters.Add(new SqliteParameter("@handle", Path.GetFileNameWithoutExtension(filename)));
-                    if (stringname != "")
-                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", stringname));
-                    else
-                        sqliteCommand.Parameters.Add(new SqliteParameter("@text", DBNull.Value));
-
-                    if (desc != "")
-                        sqliteCommand.Parameters.Add(new SqliteParameter("@desc", desc));
-                    else
-                        sqliteCommand.Parameters.Add(new SqliteParameter("@desc", DBNull.Value));
-                    sqliteCommand.ExecuteNonQuery();
-                    sqliteCommand.Parameters.Clear();
-
-
-
-                }
-            }
-        }
-
-        private void readfiletable(string file)
-        {
-            string pathfile = bg3path + file;
-            using (FileStream fileStream = new FileStream(pathfile, FileMode.Open, FileAccess.Read))
-            {
-                using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
-                {
-                    long testoffset = 0;
-                    int testsize = 0;
-                    int testzsize = 0;
-
-                    binaryReader1.ReadBytes(0x08);
-                    long offset = binaryReader1.ReadInt64();
-                    binaryReader1.BaseStream.Position = offset;
-                    int numFiles = binaryReader1.ReadInt32();
-                    int compressedSize = binaryReader1.ReadInt32();
-                    byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
-
-                    int fileBufferSize = numFiles * 272;
-                    var uncompressedList = new byte[fileBufferSize];
-                    int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
-                    //File.WriteAllBytes(Path.GetFileName(pathfile) + ".asd", uncompressedList);
-                    using (MemoryStream mem = new MemoryStream(uncompressedList))
-                    {
-                        using (BinaryReader brmem = new BinaryReader(mem))
-                        {
-                            for (int i = 0; i < numFiles; i++)
-                            {
-                                var data = brmem.ReadBytes(0x100);
-                                var offs = brmem.ReadBytes(6);
-                                Array.Resize(ref offs, 8);
-                                var dialogoffset = BitConverter.ToInt64(offs, 0);
-                                brmem.ReadBytes(2);
-                                var zsize = brmem.ReadUInt32();
-                                var size = brmem.ReadUInt32();
-                                string x = Encoding.UTF8.GetString(data.TakeWhile(a => a != 0).ToArray());
-
-                                testoffset = dialogoffset;
-                                testsize = (int)size;
-                                testzsize = (int)zsize;
-
-                                if (testzsize == 0)
-                                    continue;
-
-
-                                if ((x.Contains("/Tags/") || x.Contains("/Flags/")) && x.Contains(".lsf"))
-                                    tagsflags(x, binaryReader1, testoffset, testsize, testzsize);//+
-                                if (x.Contains("/Story/Journal/quest_prototypes.lsx"))
-                                    questflags(binaryReader1, testoffset, testsize, testzsize);//+
-                                if (x.Contains("/ApprovalRatings/Reactions/"))//*.lsx
-                                    Reactions(x, binaryReader1, testoffset, testsize, testzsize);//+
-                                if (x.Contains("/DifficultyClasses/DifficultyClasses.lsx"))
-                                    difficulties(binaryReader1, testoffset, testsize, testzsize);//+
-                                if ((x.Contains("/Items/_merged.lsf") || x.Contains("/Characters/_merged.lsf") || x.Contains("/RootTemplates/")) && !x.Contains("/Content/"))
-                                    namesmerged(binaryReader1, testoffset, testsize, testzsize);
-                                if (x.Contains("/Origins/Origins.lsx"))
-                                    namesorigins(binaryReader1, testoffset, testsize, testzsize);
-                                if (x.Contains("/Voice/SpeakerGroups.lsf"))
-                                    namesspeakergroup(binaryReader1, testoffset, testsize, testzsize);
-
-                                if (x.Contains("/Localization/English/Soundbanks/") && x.Contains(".lsf"))
-                                    aud(binaryReader1, testoffset, testsize, testzsize);
-
+                                if (item2.Name == "attribute" && item2.Attributes.GetNamedItem("id").Value == "DialogFlagGUID")
+                                    uuid = item2.Attributes.GetNamedItem("value").Value;
+                                if (item2.Name == "attribute" && item2.Attributes.GetNamedItem("id").Value == "ID")
+                                    stringname = item2.Attributes.GetNamedItem("value").Value;
+                                if (item2.Name == "attribute" && item2.Attributes.GetNamedItem("id").Value == "Description")
+                                    desc = item2.Attributes.GetNamedItem("handle").Value;
                             }
 
 
-                        }
-                    }
-
-                }
-
-            }
-        }
-
-        private void aud(BinaryReader br, long offset, int size, int zsize)
-        {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-                testuncompressedList = testcompress;
-            using (MemoryStream test = new MemoryStream(testuncompressedList))
-            {
-                using (var reader = new LSFReader(test))
-                {
-                    //reader.Read();
-                    var asd = new MemoryStream();
-                    _resource = reader.Read();
-                    ResourceFormat format = ResourceFormat.LSX;
-                    var conversionParams = ResourceConversionParameters.FromGameVersion(Game.BaldursGate3);
-                    rConvert(_resource, asd, format, conversionParams);
-                    //string result = Encoding.UTF8.GetString(asd.ToArray());//.Replace("\uFEFF", "");
-
-
-                    asd.Position = 0;
-                    XmlReader xmreader = XmlReader.Create(asd);
-                    XmlDocument xDoc = new XmlDocument();
-                    xDoc.Load(xmreader);
-
-                    XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children/node/children/node/children");
-
-                    foreach (XmlNode item in node.ChildNodes)
-                    {
-                        if (item.Attributes.GetNamedItem("id").Value == "VoiceTextMetaData")
-                        {
-                            string huuid = "";
-                            string hsource = "";
-
-                            if (item.FirstChild.Attributes.GetNamedItem("id").Value == "MapKey")
-                            {
-                                huuid = item.FirstChild.Attributes.GetNamedItem("value").Value;
-                            }
-                            if (item.LastChild.LastChild.LastChild.Attributes.GetNamedItem("id").Value == "Source")
-                            {
-                                hsource = item.LastChild.LastChild.LastChild.Attributes.GetNamedItem("value").Value;
-                            }
-
-
-                            sqliteCommand.CommandText = "UPDATE tagsflags SET description=@desc WHERE uuid=@uuid";
-                            sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", huuid));
-                            sqliteCommand.Parameters.Add(new SqliteParameter("@desc", hsource));
-                            sqliteCommand.ExecuteNonQuery();
-                            sqliteCommand.Parameters.Clear();
-
-
-                            /*
                             sqliteCommand.CommandText = "SELECT * FROM tagsflags WHERE uuid=@uuid";
-                            sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", huuid));
+                            sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", desc));
 
-                            
-                            using (SqliteDataReader reader1 = sqliteCommand.ExecuteReader())
+                            using (SqliteDataReader reader = sqliteCommand.ExecuteReader())
                             {
-                                if (reader1.HasRows)
+                                if (reader.HasRows)
                                 {
-                                    while (reader1.Read())
+                                    while (reader.Read())
                                     {
-                                        text = reader1.GetValue(1).ToString();
+                                        desc2 = reader.GetValue(1).ToString();
                                     }
                                 }
                             }
-                            
                             sqliteCommand.Parameters.Clear();
+
 
                             sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@uuid,@text,@desc)";
-                            sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", huuid));
-                            sqliteCommand.Parameters.Add(new SqliteParameter("@text", text));
-                            sqliteCommand.Parameters.Add(new SqliteParameter("@desc", hsource));
+                            sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", uuid));
+                            sqliteCommand.Parameters.Add(new SqliteParameter("@text", stringname));
+                            sqliteCommand.Parameters.Add(new SqliteParameter("@desc", desc2));
                             sqliteCommand.ExecuteNonQuery();
                             sqliteCommand.Parameters.Clear();
-                            */
                         }
-
                     }
                 }
+            }
+        }
+        private void tagsflags(PackagedFileInfo file)
+        {
+            using var fileStream = file.CreateContentReader();
+            using var asd = new MemoryStream();
+            if (file.Name.Contains(".lsf"))
+            {
+                using var reader = new LSFReader(fileStream);
+                _resource = reader.Read();
+                ResourceFormat format = ResourceFormat.LSX;
+                var conversionParams = ResourceConversionParameters.FromGameVersion(Game.BaldursGate3);
+                rConvert(_resource, asd, format, conversionParams);
+            }
+            else if (file.Name.Contains(".lsx"))
+            {
+                fileStream.CopyTo(asd);
+            }
+           
+            //string result = Encoding.UTF8.GetString(asd.ToArray());//.Replace("\uFEFF", "");
 
+            asd.Position = 0;
+            XmlReader xmreader = XmlReader.Create(asd);
+            XmlDocument xDoc = new XmlDocument();
+            xDoc.Load(xmreader);
+
+
+            string stringname = "";
+            string desc = "";
+
+            XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node");
+
+            //node.ChildNodes[0].Attributes.GetNamedItem("value");
+
+
+            foreach (XmlNode item in node.ChildNodes)
+            {
+
+                if (item.Name == "attribute" && item.Attributes.GetNamedItem("id").Value == "Name")
+                    stringname = item.Attributes.GetNamedItem("value").Value;
+                if (item.Name == "attribute" && item.Attributes.GetNamedItem("id").Value == "Description")
+                    desc = item.Attributes.GetNamedItem("value").Value;
+            }
+
+            sqliteCommand.CommandText = "INSERT or REPLACE INTO tagsflags VALUES (@handle,@text,@desc) ON CONFLICT(uuid) DO UPDATE SET uuid=excluded.uuid";
+            sqliteCommand.Parameters.Add(new SqliteParameter("@handle", Path.GetFileNameWithoutExtension(file.Name)));
+            if (stringname != "")
+                sqliteCommand.Parameters.Add(new SqliteParameter("@text", stringname));
+            else
+                sqliteCommand.Parameters.Add(new SqliteParameter("@text", DBNull.Value));
+
+            if (desc != "")
+                sqliteCommand.Parameters.Add(new SqliteParameter("@desc", desc));
+            else
+                sqliteCommand.Parameters.Add(new SqliteParameter("@desc", DBNull.Value));
+            sqliteCommand.ExecuteNonQuery();
+            sqliteCommand.Parameters.Clear();
+        }
+
+        private void readfiletable(string pakFile)
+        {
+            string pakFilePath = bg3path + pakFile;
+            var pakReader = new PackageReader();
+            using var package = pakReader.Read(pakFilePath);
+            List<PackagedFileInfo> files = package.Files;
+            foreach (var file in files)
+            {
+                if ((file.Name.Contains("/Tags/") || file.Name.Contains("/Flags/")) && file.Name.Contains(".ls"))
+                    tagsflags(file);
+                if (file.Name.Contains("/Story/Journal/quest_prototypes.lsx"))
+                    questflags(file);
+                if (file.Name.Contains("/ApprovalRatings/Reactions/"))
+                    Reactions(file);
+                if (file.Name.Contains("/DifficultyClasses/DifficultyClasses.lsx"))
+                    difficulties(file);
+                if ((file.Name.Contains("/Items/_merged.lsf") || file.Name.Contains("/Characters/_merged.lsf") || file.Name.Contains("/RootTemplates/")) && !file.Name.Contains("/Content/"))
+                    namesmerged(file);
+                if (file.Name.Contains("/Origins/Origins.lsx"))
+                    namesorigins(file);
+                if (file.Name.Contains("/Voice/SpeakerGroups.lsf"))
+                    namesspeakergroup(file);
+                if (file.Name.Contains("/Localization/English/Soundbanks/") && file.Name.Contains(".lsf"))
+                    aud(file);
+            }
+
+        }
+
+        private void aud(PackagedFileInfo file)
+        {
+            using var fileStream = file.CreateContentReader();
+            using var reader = new LSFReader(fileStream);
+
+            var asd = new MemoryStream();
+            _resource = reader.Read();
+            ResourceFormat format = ResourceFormat.LSX;
+            var conversionParams = ResourceConversionParameters.FromGameVersion(Game.BaldursGate3);
+            rConvert(_resource, asd, format, conversionParams);
+            //string result = Encoding.UTF8.GetString(asd.ToArray());//.Replace("\uFEFF", "");
+
+            asd.Position = 0;
+            XmlReader xmreader = XmlReader.Create(asd);
+            XmlDocument xDoc = new XmlDocument();
+            xDoc.Load(xmreader);
+
+            XmlNode node = xDoc.DocumentElement.SelectSingleNode("/save/region/node/children/node/children/node/children");
+
+            foreach (XmlNode item in node.ChildNodes)
+            {
+                if (item.Attributes.GetNamedItem("id").Value == "VoiceTextMetaData")
+                {
+                    string huuid = "";
+                    string hsource = "";
+
+                    if (item.FirstChild.Attributes.GetNamedItem("id").Value == "MapKey")
+                    {
+                        huuid = item.FirstChild.Attributes.GetNamedItem("value").Value;
+                    }
+                    if (item.LastChild.LastChild.LastChild.Attributes.GetNamedItem("id").Value == "Source")
+                    {
+                        hsource = item.LastChild.LastChild.LastChild.Attributes.GetNamedItem("value").Value;
+                    }
+
+                    sqliteCommand.CommandText = "UPDATE tagsflags SET description=@desc WHERE uuid=@uuid";
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@uuid", huuid));
+                    sqliteCommand.Parameters.Add(new SqliteParameter("@desc", hsource));
+                    sqliteCommand.ExecuteNonQuery();
+                    sqliteCommand.Parameters.Clear();
+                }
             }
         }
 
-        private void readfiletable2(string file)
+        private void readfiletable2(string pakFile)
         {
-            string pathfile = bg3path + file;
-            using (FileStream fileStream = new FileStream(pathfile, FileMode.Open, FileAccess.Read))
+            string pakFilePath = bg3path + pakFile;
+            var pakReader = new PackageReader();
+            using var package = pakReader.Read(pakFilePath);
+            List<PackagedFileInfo> files = package.Files;
+            foreach (var file in files)
             {
-                using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
-                {
-                    long testoffset = 0;
-                    int testsize = 0;
-                    int testzsize = 0;
-
-                    binaryReader1.ReadBytes(0x08);
-                    long offset = binaryReader1.ReadInt64();
-                    binaryReader1.BaseStream.Position = offset;
-                    int numFiles = binaryReader1.ReadInt32();
-                    int compressedSize = binaryReader1.ReadInt32();
-                    byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
-
-                    int fileBufferSize = numFiles * 272;
-                    var uncompressedList = new byte[fileBufferSize];
-                    int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
-                    //File.WriteAllBytes("asd2.asd", uncompressedList);
-                    using (MemoryStream mem = new MemoryStream(uncompressedList))
+                if (file.Name.Contains("/Story/Dialogs/") && file.Name.Contains(".lsj"))
+                    if (!exdialogs.Contains(file.Name))
                     {
-                        using (BinaryReader brmem = new BinaryReader(mem))
-                        {
-                            for (int i = 0; i < numFiles; i++)
-                            {
-                                var data = brmem.ReadBytes(0x100);
-                                var offs = brmem.ReadBytes(6);
-                                Array.Resize(ref offs, 8);
-                                var dialogoffset = BitConverter.ToInt64(offs, 0);
-                                brmem.ReadBytes(2);
-                                var zsize = brmem.ReadUInt32();
-                                var size = brmem.ReadUInt32();
-                                string x = Encoding.UTF8.GetString(data.TakeWhile(a => a != 0).ToArray());
-
-                                testoffset = dialogoffset;
-                                testsize = (int)size;
-                                testzsize = (int)zsize;
-
-
-                                if (x.Contains("/Story/Dialogs/") && x.Contains(".lsj") && testzsize != 0)
-                                    if (!exdialogs.Contains(x))
-                                    {
-                                        dialogs2(x, binaryReader1, testoffset, testsize, testzsize);
-                                        exdialogs.Add(x);
-                                        if (checkBoxExportLSJ.Checked)
-                                            dialogs(x, binaryReader1, testoffset, testsize, testzsize);
-                                    }
-
-                            };
-
-
-                        }
+                        dialogs(file);
+                        exdialogs.Add(file.Name);
                     }
-
-                }
-
             }
         }
 
@@ -966,7 +682,11 @@ namespace bg3dialogreader
             Dictionary<string, string> speakersdict = new Dictionary<string, string>();
 
             string synopsis = root.save.regions.editorData.synopsis.value;
-            string howtotrigger = root.save.regions.editorData.HowToTrigger.value;
+            string howtotrigger = "";
+            if (root.save.regions.editorData.HowToTrigger != null)
+            {
+                howtotrigger = root.save.regions.editorData.HowToTrigger.value;
+            }
 
 
             if (root.save.regions.dialog.speakerlist?[0].speaker?[0].list?.value != null)
@@ -1277,19 +997,19 @@ namespace bg3dialogreader
                         {
                             CinematicNodeContext = data.val.value;
                             if (CinematicNodeContext != "" && CinematicNodeContext != "<placeholder>")
-                                context += "CinematicNodeContext: " + CinematicNodeContext.Replace("'", "&#39") + "&#013;";
+                                context += " | CinematicNodeContext: " + CinematicNodeContext.Replace("'", "&#39") + "&#013;";
                         }
                         if (data.key.value == "InternalNodeContext")
                         {
                             InternalNodeContext = data.val.value;
                             if(InternalNodeContext != "")
-                                context += "InternalNodeContext: " + InternalNodeContext.Replace("'", "&#39") + "&#013;";
+                                context += " | InternalNodeContext: " + InternalNodeContext.Replace("'", "&#39") + "&#013;";
                         }
                         if (data.key.value == "NodeContext")
                         {
                             NodeContext = data.val.value;
                             if (NodeContext != "")
-                                context += "NodeContext: " + NodeContext.Replace("'", "&#39") + "&#013;";
+                                context += " | NodeContext: " + NodeContext.Replace("'", "&#39") + "&#013;";
                         }
                     }
                 }
@@ -1348,37 +1068,10 @@ namespace bg3dialogreader
 
                 if (context != "")
                     context = "<span class='context' title='" + context + "'><sup>devnote</sup></span>";
+                    //context = "<span class='context'>" + context + "'</span>";
 
                 if (textsss.Count > 0)
                 {
-                    /* nothing to see here
-                    List<int> aa = new List<int>();
-                    for (int i = 0; i < text.Count; i++)
-                    {
-                        if (text[i].StartsWith("<span class='dialog"))
-                        {
-                            aa.Add(i);
-                        }
-                    }
-                    List<int> y = new List<int>();
-                    for (int i = 1; i < aa.Count; i++)
-                    {
-                        y.Add(aa[i]);
-                    }
-                    y.Add(text.Count);
-                    List<List<string>> z = new List<List<string>>();
-                    for (int i = 0; i < aa.Count; i++)
-                    {
-                        List<string> sublist = new List<string>();
-                        for (int j = aa[i]; j < y[i]; j++)
-                        {
-                            sublist.Add(text[j]);
-                        }
-                        z.Add(sublist);
-                    }
-                    */
-
-
                     List<string> xfh44ew = new List<string>();
                     foreach (var af in textsss) //string.Join(", ", setflag2.ToArray())
                     {
@@ -1556,77 +1249,31 @@ namespace bg3dialogreader
             return 0;
         }
 
-        private void readfiletable3(string file)
+        private void readfiletable3(string pakFile)
         {
-            string pathfile = bg3path + file;
-            using (FileStream fileStream = new FileStream(pathfile, FileMode.Open, FileAccess.Read))
+            string pakFilePath = bg3path + pakFile;
+            var pakReader = new PackageReader();
+            using var package = pakReader.Read(pakFilePath);
+            List<PackagedFileInfo> files = package.Files;
+            foreach (var file in files)
             {
-                using (BinaryReader binaryReader1 = new BinaryReader(fileStream))
-                {
-                    long testoffset = 0;
-                    int testsize = 0;
-                    int testzsize = 0;
-
-                    binaryReader1.ReadBytes(0x08);
-                    long offset = binaryReader1.ReadInt64();
-                    binaryReader1.BaseStream.Position = offset;
-                    int numFiles = binaryReader1.ReadInt32();
-                    int compressedSize = binaryReader1.ReadInt32();
-                    byte[] compressedFileList = binaryReader1.ReadBytes(compressedSize);
-
-                    int fileBufferSize = numFiles * 272;
-                    var uncompressedList = new byte[fileBufferSize];
-                    int uncompressedSize = LZ4Codec.Decode(compressedFileList, 0, compressedFileList.Length, uncompressedList, 0, fileBufferSize, true);
-                    //File.WriteAllBytes("asd2.asd", uncompressedList);
-                    using (MemoryStream mem = new MemoryStream(uncompressedList))
+                if (file.Name.Contains("/Story/Dialogs/") && file.Name.Contains(".lsj"))
+                    if (!exdialogs.Contains(file.Name))
                     {
-                        using (BinaryReader brmem = new BinaryReader(mem))
-                        {
-                            for (int i = 0; i < numFiles; i++)
-                            {
-                                var data = brmem.ReadBytes(0x100);
-                                var offs = brmem.ReadBytes(6);
-                                Array.Resize(ref offs, 8);
-                                var dialogoffset = BitConverter.ToInt64(offs, 0);
-                                brmem.ReadBytes(2);
-                                var zsize = brmem.ReadUInt32();
-                                var size = brmem.ReadUInt32();
-                                string x = Encoding.UTF8.GetString(data.TakeWhile(a => a != 0).ToArray());
-
-                                testoffset = dialogoffset;
-                                testsize = (int)size;
-                                testzsize = (int)zsize;
-
-                                if (x.Contains("/Story/Dialogs/") && x.Contains(".lsj") && testzsize != 0)
-                                    if (!exdialogs.Contains(x))
-                                    {
-                                        dialogs3(x, binaryReader1, testoffset, testsize, testzsize);
-                                        exdialogs.Add(x);
-                                    }
-                            };
-
-
-                        }
+                        dialogs3(file);
+                        exdialogs.Add(file.Name);
                     }
-
-                }
-
             }
+
         }
 
-        private void dialogs3(string filename, BinaryReader br, long offset, int size, int zsize)
+        private void dialogs3(PackagedFileInfo file)
         {
-            br.BaseStream.Position = offset;
-            byte[] testcompress = br.ReadBytes(zsize);
-            //var uncompressedtest = new byte[size];
-            var testuncompressedList = new byte[size];
-            int testuncompressedSize = LZ4Codec.Decode(testcompress, 0, testcompress.Length, testuncompressedList, 0, size, true);
-            if (size == 0)
-            {
-                testuncompressedList = testcompress;
-            }
+            using var fileStream = file.CreateContentReader();
+            using var memoryStream = new MemoryStream();
+            fileStream.CopyTo(memoryStream);
 
-            dos2(testuncompressedList, filename);
+            dos2(memoryStream.ToArray(), file.Name);
         }
 
         public void dos2(byte[] testuncompressedList, string filename)
@@ -2070,7 +1717,7 @@ namespace bg3dialogreader
 
 
 
-            richTextBoxLog.AppendText("Parsing: " + comboBoxLanguageSelect.Text + ".pak");
+            richTextBoxLog.AppendText("Parsing: " + comboBoxLanguageSelect.Text + ".pak ");
 
             await Task.Run(() => parsetranslation());
             richTextBoxLog.AppendText("- Done\n");
@@ -2093,10 +1740,12 @@ namespace bg3dialogreader
                 }
             }
 
-            richTextBoxLog.AppendText("Parsing: VoiceMeta.pak ");
-            await Task.Run(() => readfiletable("\\Localization\\VoiceMeta.pak"));
-            richTextBoxLog.AppendText("- Done\n");
-
+            if (File.Exists(bg3path + "\\Localization\\VoiceMeta.pak"))
+            {
+                richTextBoxLog.AppendText("Parsing: VoiceMeta.pak ");
+                await Task.Run(() => readfiletable("\\Localization\\VoiceMeta.pak"));
+                richTextBoxLog.AppendText("- Done\n");
+            }
 
             richTextBoxLog.AppendText("Finalizing ");
 
@@ -2717,716 +2366,8 @@ namespace bg3dialogreader
 
             }
         }
-        public class Rootobject
-        {
-            public Save save { get; set; }
-        }
-
-        public class Save
-        {
-            public Header header { get; set; }
-            public Regions regions { get; set; }
-        }
-
-        public class Header
-        {
-            public string version { get; set; }
-        }
-
-        public class Regions
-        {
-            public Dialog dialog { get; set; }
-            public Editordata1 editorData { get; set; }
-        }
-
-        public class Dialog
-        {
-            public Defaultaddressedspeaker[] DefaultAddressedSpeakers { get; set; }
-            public Timelineid TimelineId { get; set; }
-            public UUID UUID { get; set; }
-            public Category category { get; set; }
-            public Node[] nodes { get; set; }
-            public Speakerlist[] speakerlist { get; set; }
-        }
-
-        public class Timelineid
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class UUID
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Category
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Defaultaddressedspeaker
-        {
-            public Object[] Object { get; set; }
-        }
-
-        public class Object
-        {
-            public Mapkey MapKey { get; set; }
-            public Mapvalue MapValue { get; set; }
-        }
-
-        public class Mapkey
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Mapvalue
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Node
-        {
-            public Rootnode[] RootNodes { get; set; }
-            public Node1[] node { get; set; }
-        }
-
-        public class Rootnode
-        {
-            public Rootnodes RootNodes { get; set; }
-        }
-
-        public class Rootnodes
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-        public class PopLevel
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-        public class Node1
-        {
-            public Gamedata[] GameData { get; set; }
-            public Sourcenode SourceNode { get; set; }
-            public Tag[] Tags { get; set; }
-            public UUID1 UUID { get; set; }
-            public Checkflag[] checkflags { get; set; }
-            public Child[] children { get; set; }
-            public Constructor constructor { get; set; }
-            public Editordata[] editorData { get; set; }
-            public Setflag[] setflags { get; set; }
-            public Speaker speaker { get; set; }
-            public PopLevel PopLevel { get; set; }
-            public Showonce ShowOnce { get; set; }
-            public Taggedtext[] TaggedTexts { get; set; }
-            public Validatedflag[] ValidatedFlags { get; set; }
-            public Jumptarget jumptarget { get; set; }
-            public Jumptargetpoint jumptargetpoint { get; set; }
-            public Endnode endnode { get; set; }
-            public Approvalratingid ApprovalRatingID { get; set; }
-            public Success Success { get; set; }
-            public Groupid GroupID { get; set; }
-            public Groupindex GroupIndex { get; set; }
-            public Root Root { get; set; }
-            public Ability Ability { get; set; }
-            public Advantage Advantage { get; set; }
-            public Difficultyclassid DifficultyClassID { get; set; }
-            public Excludecompanionsoptionalbonuses ExcludeCompanionsOptionalBonuses { get; set; }
-            public Excludespeakeroptionalbonuses ExcludeSpeakerOptionalBonuses { get; set; }
-            public Rolltargetspeaker RollTargetSpeaker { get; set; }
-            public Rolltype RollType { get; set; }
-            public Skill Skill { get; set; }
-            public Transitionmode transitionmode { get; set; }
-            public Optional optional { get; set; }
-        }
-
-        public class Sourcenode
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class UUID1
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Constructor
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Speaker
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Showonce
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Jumptarget
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Jumptargetpoint
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Endnode
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Approvalratingid
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Success
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Groupid
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Groupindex
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Root
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Ability
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Advantage
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Difficultyclassid
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Excludecompanionsoptionalbonuses
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Excludespeakeroptionalbonuses
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Rolltargetspeaker
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Rolltype
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Skill
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Transitionmode
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Optional
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Gamedata
-        {
-            public Aipersonality[] AiPersonalities { get; set; }
-            public Musicinstrumentsound[] MusicInstrumentSounds { get; set; }
-            public Originsound[] OriginSound { get; set; }
-        }
-
-        public class Aipersonality
-        {
-            public Aipersonality1[] AiPersonality { get; set; }
-        }
-
-        public class Aipersonality1
-        {
-            public Aipersonality2 AiPersonality { get; set; }
-        }
-
-        public class Aipersonality2
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Musicinstrumentsound
-        {
-        }
-
-        public class Originsound
-        {
-        }
-
-        public class Tag
-        {
-            [JsonProperty("Tag")]
-            public Tag1[] Tagg { get; set; }
-        }
-
-        public class Tag1
-        {
-            public Tag2 Tag { get; set; }
-        }
-
-        public class Tag2
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Checkflag
-        {
-            public Flaggroup[] flaggroup { get; set; }
-        }
-
-        public class Flaggroup
-        {
-            public Flag[] flag { get; set; }
-            public Type type { get; set; }
-        }
-
-        public class Type
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Flag
-        {
-            public UUID2 UUID { get; set; }
-            public Value value { get; set; }
-            public Paramval paramval { get; set; }
-        }
-
-        public class UUID2
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Value
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Paramval
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Child
-        {
-            public Child1[] child { get; set; }
-        }
-
-        public class Child1
-        {
-            public UUID3 UUID { get; set; }
-        }
-
-        public class UUID3
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Editordata
-        {
-            public Datum[] data { get; set; }
-        }
-
-        public class Datum
-        {
-            public Key key { get; set; }
-            public Val val { get; set; }
-        }
-
-        public class Key
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Val
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Setflag
-        {
-            public Flaggroup1[] flaggroup { get; set; }
-        }
-
-        public class Flaggroup1
-        {
-            public Flag1[] flag { get; set; }
-            public Type1 type { get; set; }
-        }
-
-        public class Type1
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Flag1
-        {
-            public UUID4 UUID { get; set; }
-            public Paramval1 paramval { get; set; }
-            public Value1 value { get; set; }
-        }
-
-        public class UUID4
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Paramval1
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Value1
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Taggedtext
-        {
-            public Taggedtext1[] TaggedText { get; set; }
-        }
-
-        public class Taggedtext1
-        {
-            public Hastagrule HasTagRule { get; set; }
-            public Rulegroup[] RuleGroup { get; set; }
-            public Tagtext[] TagTexts { get; set; }
-        }
-
-        public class Hastagrule
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Rulegroup
-        {
-            public Rule[] Rules { get; set; }
-            public Tagcombineop TagCombineOp { get; set; }
-        }
-
-        public class Tagcombineop
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Rule
-        {
-            [JsonProperty("Rule")]
-            public Rule1[] Rulee { get; set; }
-        }
-
-        public class Rule1
-        {
-            public Haschildrules HasChildRules { get; set; }
-            public Tagcombineop1 TagCombineOp { get; set; }
-            public Tag3[] Tags { get; set; }
-            public Speaker1 speaker { get; set; }
-        }
-
-        public class Haschildrules
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Tagcombineop1
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Speaker1
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Tag3
-        {
-            public Tag4[] Tag { get; set; }
-        }
-
-        public class Tag4
-        {
-            public Object1 Object { get; set; }
-        }
-
-        public class Object1
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Tagtext
-        {
-            public Tagtext1[] TagText { get; set; }
-        }
-
-        public class Tagtext1
-        {
-            public Lineid LineId { get; set; }
-            public Tagtext2 TagText { get; set; }
-            public Stub stub { get; set; }
-        }
-
-        public class Lineid
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Tagtext2
-        {
-            public string handle { get; set; }
-            public string type { get; set; }
-            public int version { get; set; }
-        }
-
-        public class Stub
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Validatedflag
-        {
-            public Validatedhasvalue ValidatedHasValue { get; set; }
-        }
-
-        public class Validatedhasvalue
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Speakerlist
-        {
-            public Speaker2[] speaker { get; set; }
-        }
-
-        public class Speaker2
-        {
-            public Speakermappingid SpeakerMappingId { get; set; }
-            public Index index { get; set; }
-            public List list { get; set; }
-            public Ispeanutspeaker IsPeanutSpeaker { get; set; }
-        }
-
-        public class Speakermappingid
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Index
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class List
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Ispeanutspeaker
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Editordata1
-        {
-            public Howtotrigger HowToTrigger { get; set; }
-            public Defaultattitude[] defaultAttitudes { get; set; }
-            public Defaultemotion[] defaultEmotions { get; set; }
-            public Isimportantforstaging[] isImportantForStagings { get; set; }
-            public Ispeanut[] isPeanuts { get; set; }
-            public Needlayout needLayout { get; set; }
-            public Nextnodeid nextNodeId { get; set; }
-            public Speakerslotdescription[] speakerSlotDescription { get; set; }
-            public Synopsis synopsis { get; set; }
-        }
-
-        public class Howtotrigger
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Needlayout
-        {
-            public string type { get; set; }
-            public bool value { get; set; }
-        }
-
-        public class Nextnodeid
-        {
-            public string type { get; set; }
-            public int value { get; set; }
-        }
-
-        public class Synopsis
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Defaultattitude
-        {
-            public Datum1[] data { get; set; }
-        }
-
-        public class Datum1
-        {
-            public Key1 key { get; set; }
-            public Val1 val { get; set; }
-        }
-
-        public class Key1
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Val1
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Defaultemotion
-        {
-            public Datum2[] data { get; set; }
-        }
-
-        public class Datum2
-        {
-            public Key2 key { get; set; }
-            public Val2 val { get; set; }
-        }
-
-        public class Key2
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Val2
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Isimportantforstaging
-        {
-        }
-
-        public class Ispeanut
-        {
-            public Datum3[] data { get; set; }
-        }
-
-        public class Datum3
-        {
-            public Key3 key { get; set; }
-            public Val3 val { get; set; }
-        }
-
-        public class Key3
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Val3
-        {
-            public string type { get; set; }
-            public string value { get; set; }
-        }
-
-        public class Speakerslotdescription
-        {
-        }
     }
+
     public static class StringExtensions
     {
         public static string Repeat(this string s, int n)
