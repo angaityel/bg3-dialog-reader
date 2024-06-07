@@ -115,6 +115,12 @@ namespace bg3dialogreader
             public Editordata[] editorData { get; set; }
             public Setflag[] setflags { get; set; }
             public Speaker speaker { get; set; }
+            public Waittime waittime { get; set; }
+            public DifficultyMod DifficultyMod { get; set; }
+            public LevelOverride LevelOverride { get; set; }
+            public PersuasionTargetSpeakerIndex PersuasionTargetSpeakerIndex { get; set; }
+            public StatName StatName { get; set; }
+            public StatsAttribute StatsAttribute { get; set; }
             public PopLevel PopLevel { get; set; }
             public Showonce ShowOnce { get; set; }
             public Taggedtext[] TaggedTexts { get; set; }
@@ -161,6 +167,36 @@ namespace bg3dialogreader
         {
             public string type { get; set; }
             public int value { get; set; }
+        }
+        public class Waittime
+        {
+            public string type { get; set; }
+            public float value { get; set; }
+        }
+        public class DifficultyMod
+        {
+            public int type { get; set; }
+            public int value { get; set; }
+        }
+        public class LevelOverride
+        {
+            public int type { get; set; }
+            public int value { get; set; }
+        }
+        public class PersuasionTargetSpeakerIndex
+        {
+            public int type { get; set; }
+            public int value { get; set; }
+        }
+        public class StatName
+        {
+            public int type { get; set; }
+            public string value { get; set; }
+        }
+        public class StatsAttribute
+        {
+            public int type { get; set; }
+            public string value { get; set; }
         }
 
         public class Showonce
@@ -347,6 +383,7 @@ namespace bg3dialogreader
             public UUID2 UUID { get; set; }
             public Value value { get; set; }
             public Paramval paramval { get; set; }
+            public Name name { get; set; }
         }
 
         public class UUID2
@@ -365,6 +402,11 @@ namespace bg3dialogreader
         {
             public string type { get; set; }
             public int value { get; set; }
+        }
+        public class Name
+        {
+            public int type { get; set; }
+            public string value { get; set; }
         }
 
         public class Child
@@ -428,6 +470,7 @@ namespace bg3dialogreader
             public UUID4 UUID { get; set; }
             public Paramval1 paramval { get; set; }
             public Value1 value { get; set; }
+            public Name1 name { get; set; }
         }
 
         public class UUID4
@@ -446,6 +489,11 @@ namespace bg3dialogreader
         {
             public string type { get; set; }
             public bool value { get; set; }
+        }
+        public class Name1
+        {
+            public int type { get; set; }
+            public string value { get; set; }
         }
 
         public class Taggedtext
@@ -547,6 +595,7 @@ namespace bg3dialogreader
         public class Tagtext2
         {
             public string handle { get; set; }
+            public string value { get; set; }
             public string type { get; set; }
             public int version { get; set; }
         }

@@ -38,6 +38,7 @@
             buttonCreateDB = new Button();
             buttonOpen = new Button();
             groupBoxExtractHtml = new GroupBox();
+            linkLabelSettings = new LinkLabel();
             checkBoxExportLSJ = new CheckBox();
             labelHTML = new Label();
             buttonExtractHTML = new Button();
@@ -46,6 +47,11 @@
             buttonExtractDE2 = new Button();
             richTextBoxLog = new RichTextBox();
             groupBoxDialogViewer = new GroupBox();
+            panelSettings = new Panel();
+            groupBoxDevNotesStyle = new GroupBox();
+            radioButtonDevNotesSuperscript = new RadioButton();
+            pictureBox1 = new PictureBox();
+            radioButtonDevNotesInLine = new RadioButton();
             labelCurentFilePath = new Label();
             labelCurrentFileText = new Label();
             listViewDialog = new ListView();
@@ -70,6 +76,9 @@
             groupBoxExtractHtml.SuspendLayout();
             groupBoxExtractDE2.SuspendLayout();
             groupBoxDialogViewer.SuspendLayout();
+            panelSettings.SuspendLayout();
+            groupBoxDevNotesStyle.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)pictureBox1).BeginInit();
             contextMenuStripDialogList.SuspendLayout();
             contextMenuStripDialogTree.SuspendLayout();
             SuspendLayout();
@@ -160,6 +169,7 @@
             // 
             // groupBoxExtractHtml
             // 
+            groupBoxExtractHtml.Controls.Add(linkLabelSettings);
             groupBoxExtractHtml.Controls.Add(checkBoxExportLSJ);
             groupBoxExtractHtml.Controls.Add(labelHTML);
             groupBoxExtractHtml.Controls.Add(buttonExtractHTML);
@@ -169,6 +179,17 @@
             groupBoxExtractHtml.TabIndex = 1;
             groupBoxExtractHtml.TabStop = false;
             groupBoxExtractHtml.Text = "Extract formatted html";
+            // 
+            // linkLabelSettings
+            // 
+            linkLabelSettings.AutoSize = true;
+            linkLabelSettings.Location = new Point(140, 0);
+            linkLabelSettings.Name = "linkLabelSettings";
+            linkLabelSettings.Size = new Size(49, 15);
+            linkLabelSettings.TabIndex = 3;
+            linkLabelSettings.TabStop = true;
+            linkLabelSettings.Text = "Settings";
+            linkLabelSettings.LinkClicked += linkLabelSettings_LinkClicked;
             // 
             // checkBoxExportLSJ
             // 
@@ -244,6 +265,7 @@
             // groupBoxDialogViewer
             // 
             groupBoxDialogViewer.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            groupBoxDialogViewer.Controls.Add(panelSettings);
             groupBoxDialogViewer.Controls.Add(labelCurentFilePath);
             groupBoxDialogViewer.Controls.Add(labelCurrentFileText);
             groupBoxDialogViewer.Controls.Add(listViewDialog);
@@ -255,6 +277,59 @@
             groupBoxDialogViewer.TabIndex = 4;
             groupBoxDialogViewer.TabStop = false;
             groupBoxDialogViewer.Text = "Audio player and dialog viewer (without formatting)";
+            // 
+            // panelSettings
+            // 
+            panelSettings.BackColor = SystemColors.Control;
+            panelSettings.Controls.Add(groupBoxDevNotesStyle);
+            panelSettings.Location = new Point(6, 167);
+            panelSettings.Name = "panelSettings";
+            panelSettings.Size = new Size(404, 160);
+            panelSettings.TabIndex = 8;
+            panelSettings.Visible = false;
+            // 
+            // groupBoxDevNotesStyle
+            // 
+            groupBoxDevNotesStyle.Controls.Add(radioButtonDevNotesSuperscript);
+            groupBoxDevNotesStyle.Controls.Add(pictureBox1);
+            groupBoxDevNotesStyle.Controls.Add(radioButtonDevNotesInLine);
+            groupBoxDevNotesStyle.Location = new Point(15, 15);
+            groupBoxDevNotesStyle.Name = "groupBoxDevNotesStyle";
+            groupBoxDevNotesStyle.Size = new Size(374, 142);
+            groupBoxDevNotesStyle.TabIndex = 5;
+            groupBoxDevNotesStyle.TabStop = false;
+            groupBoxDevNotesStyle.Text = "Devnotes style";
+            // 
+            // radioButtonDevNotesSuperscript
+            // 
+            radioButtonDevNotesSuperscript.AutoSize = true;
+            radioButtonDevNotesSuperscript.Checked = true;
+            radioButtonDevNotesSuperscript.Location = new Point(6, 22);
+            radioButtonDevNotesSuperscript.Name = "radioButtonDevNotesSuperscript";
+            radioButtonDevNotesSuperscript.Size = new Size(84, 19);
+            radioButtonDevNotesSuperscript.TabIndex = 1;
+            radioButtonDevNotesSuperscript.TabStop = true;
+            radioButtonDevNotesSuperscript.Text = "Superscript";
+            radioButtonDevNotesSuperscript.UseVisualStyleBackColor = true;
+            // 
+            // pictureBox1
+            // 
+            pictureBox1.Image = Properties.Resources.dolly;
+            pictureBox1.Location = new Point(6, 80);
+            pictureBox1.Name = "pictureBox1";
+            pictureBox1.Size = new Size(360, 53);
+            pictureBox1.TabIndex = 4;
+            pictureBox1.TabStop = false;
+            // 
+            // radioButtonDevNotesInLine
+            // 
+            radioButtonDevNotesInLine.AutoSize = true;
+            radioButtonDevNotesInLine.Location = new Point(6, 47);
+            radioButtonDevNotesInLine.Name = "radioButtonDevNotesInLine";
+            radioButtonDevNotesInLine.Size = new Size(54, 19);
+            radioButtonDevNotesInLine.TabIndex = 2;
+            radioButtonDevNotesInLine.Text = "Inline";
+            radioButtonDevNotesInLine.UseVisualStyleBackColor = true;
             // 
             // labelCurentFilePath
             // 
@@ -439,7 +514,7 @@
             Controls.Add(groupBoxExtractHtml);
             Controls.Add(groupBoxLoadDB);
             Name = "Form1";
-            Text = "BG3 Dialog Reader 1.2.0";
+            Text = "BG3 Dialog Reader 1.2.1";
             groupBoxLoadDB.ResumeLayout(false);
             groupBoxLoadDB.PerformLayout();
             groupBoxExtractHtml.ResumeLayout(false);
@@ -448,6 +523,10 @@
             groupBoxExtractDE2.PerformLayout();
             groupBoxDialogViewer.ResumeLayout(false);
             groupBoxDialogViewer.PerformLayout();
+            panelSettings.ResumeLayout(false);
+            groupBoxDevNotesStyle.ResumeLayout(false);
+            groupBoxDevNotesStyle.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)pictureBox1).EndInit();
             contextMenuStripDialogList.ResumeLayout(false);
             contextMenuStripDialogTree.ResumeLayout(false);
             ResumeLayout(false);
@@ -493,5 +572,11 @@
         private ToolStripMenuItem exportHTMLDialogToolStripMenuItem;
         private ToolStripMenuItem exportDOS2DialogToolStripMenuItem;
         private ToolStripMenuItem exportLSJDialogToolStripMenuItem;
+        private LinkLabel linkLabelSettings;
+        private Panel panelSettings;
+        private RadioButton radioButtonDevNotesInLine;
+        private RadioButton radioButtonDevNotesSuperscript;
+        private PictureBox pictureBox1;
+        private GroupBox groupBoxDevNotesStyle;
     }
 }

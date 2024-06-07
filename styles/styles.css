@@ -75,7 +75,7 @@ span.npcplayer {
 
 span.context {
 	cursor: pointer;
-	color: lightskyblue;
+	color: darkolivegreen;
 }
 
 span.synopsis {
@@ -120,6 +120,6 @@ span.shtags {
 
 span.shcontext {
 	cursor: pointer;
-	color: lightskyblue;
+	color: darkolivegreen;
 	margin-left: 5px;
 }
