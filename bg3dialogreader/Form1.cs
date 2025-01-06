@@ -838,6 +838,58 @@ namespace bg3dialogreader
                     }
                 }
                 //textlines.Add(index, text);
+                
+                if (node.children?[0].child?[0].UUID?.value == null && node.endnode?.value == null && node.constructor.value == "TagAnswer" && node.optional?.value != true)
+                {
+                    var listSkip = new List<string>() { 
+                        "Mods/GustavDev/Story/Dialogs/Act2/MoonriseTowers/MOO_Assault_FirstKethericInterruption.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Act2/MoonriseTowers/MOO_ZrellBriefing_AD_WithSpy.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Companions/Gale_InParty2_Nested_ArcaneTower.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Companions/Gale_InParty2_Nested_SpellTeaching_Connected.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Companions/Party_Banter/PB_Minthara_Astarion_SCLForest.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Companions/Gale_InParty2_Nested_SpellTeachingSuccess.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Companions/Gale_InParty2_Nested_LanceboardPuzzle.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Act3/EndGame/Epilogue/EPI_Epilogue_AD_GhostReactionMinsc.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Act3/EndGame/END_GameFinale_TheHerosRevelry.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Act3/LowerCity/LOW_SorcerousSundries_AD_RamazithTowerNoGale.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Act3/LowerCity/LOW_UndercityRuins_AD_AmbushGroup3.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Act3/LowerCity/LOW_GuildhallEntrance_PAD_MyKindOfAlley.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Act3/LowerCity/LOW_MinscHideout_PAD_Neighbourhood.lsj",
+                        "Mods/GustavDev/Story/Dialogs/Act3/LowerCity/LOW_Guildhall_Member_002.lsj",
+                        "Mods/Gustav/Story/Dialogs/Act1/Goblin/ADs/GOB_Festivities_AD_DemandingPants.lsj",
+                        "Mods/Gustav/Story/Dialogs/Act1/DEN/DEN_AttackOnDen_AD_ChefAndSon.lsj",
+                        "Mods/Gustav/Story/Dialogs/Act1/DEN/DEN_DruidAttack_AD_TraineesAfterAttack.lsj"
+                    };//no options or end nodes
+                    if (!listSkip.Contains(pfi))
+                    {
+                        var parentNode = childDict.FirstOrDefault(p => p.Value.Contains(index)).Key;
+
+                        var listTest = new List<string>() { "TagQuestion", "ActiveRoll", "PassiveRoll" };
+                        while (!listTest.Contains(root.save.regions.dialog.nodes[0].node[parentNode].constructor.value))
+                        {
+                            if (pfi == "Mods/GustavDev/Story/Dialogs/Companions/Laezel_InParty2.lsj" && index == 248) //Deprecated flag (+ no options or end node)
+                            {
+                                break;
+                            }
+                            else
+                            {
+                                parentNode = childDict.FirstOrDefault(p => p.Value.Contains(parentNode)).Key;
+                            }
+                            
+                        }
+                        parentNode = childDict.FirstOrDefault(p => p.Value.Contains(parentNode)).Key;
+
+                        while (root.save.regions.dialog.nodes[0].node[parentNode].optional?.value == true)
+                        {
+                            parentNode = childDict.FirstOrDefault(p => p.Value.Contains(parentNode)).Key;
+                        }
+
+                        links.Add("[+-+" + parentNode.ToString() + "+-+]");
+                    }
+                }
+
+
+
                 //childnodes
                 if (node.children?[0].child?[0].UUID?.value != null)
                 {
@@ -1196,6 +1248,10 @@ namespace bg3dialogreader
                         if (ffff.Contains("+++"))
                         {
                             final.Add("\t".Repeat(hhh + 1) + " class='goto'><span class='goto' data-id='" + ffff.Substring(5, ffff.Length - 10) + "'> Link to Node " + ffff.Substring(5, ffff.Length - 10) + "</span></li>" + "\n");
+                        }
+                        else if (ffff.Contains("+-+"))
+                        {
+                            final.Add("\t".Repeat(hhh + 1) + " class='goto'><span class='goto' data-id='" + ffff.Substring(5, ffff.Length - 10) + "'> Return to Node " + ffff.Substring(5, ffff.Length - 10) + "</span></li>" + "\n");
                         }
                         else if (ffff.Contains("("))
                             matching.Add(ffff);

@@ -514,7 +514,7 @@
             Controls.Add(groupBoxExtractHtml);
             Controls.Add(groupBoxLoadDB);
             Name = "Form1";
-            Text = "BG3 Dialog Reader 1.2.1";
+            Text = "BG3 Dialog Reader 1.2.2";
             groupBoxLoadDB.ResumeLayout(false);
             groupBoxLoadDB.PerformLayout();
             groupBoxExtractHtml.ResumeLayout(false);
