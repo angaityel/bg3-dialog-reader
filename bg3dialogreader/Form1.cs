@@ -1912,13 +1912,13 @@ namespace bg3dialogreader
                 }
                 comboBoxLanguageSelect.SelectedItem = comboBoxLanguageSelect.Items[0];
                 buttonCreateDB.Enabled = true;
-                buttonLoadTree.Enabled = true;
                 comboBoxLanguageSelect.Enabled = true;
                 if (File.Exists("bg3.db"))
                 {
                     buttonExtractHTML.Enabled = true;
                     buttonExtractDE2.Enabled = true;
                     checkBoxExportLSJ.Enabled = true;
+                    buttonLoadTree.Enabled = true;
                 }
             }
         }
