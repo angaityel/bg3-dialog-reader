@@ -53,3 +53,7 @@ And you can simulate conversation (and you can setup required flags for it):
 - Click "Load dialogs tree".
 - Double-click on the dialog file to load its lines.
 - Double-click a line to play it back.
+
+## Build
+- Unpack ExportTool binaries from the latest release https://github.com/Norbyte/lslib/releases to ExportTool folder
+- Build project "dotnet build --configuration Release" (requires .Net 8 or later)
